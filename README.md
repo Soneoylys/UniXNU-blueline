@@ -54,6 +54,20 @@ SP1A.210812.016.C2), extracted with `scripts/extract-blueline-xbl.py`, and the m
 | `tools/windows/build-basetools.py` | EDK II BaseTools C programs (GenFv, GenFfs, GenSec, LzmaCompress, VfrCompile, ...) with zig |
 | `tools/windows/build-firmware.ps1` | The bluelinePkg EDK II build on Windows, with Mu-Silicium's Mu_Basecore patches applied and reverted |
 
+## Setup
+
+```sh
+git clone https://github.com/Soneoylys/UniXNU-blueline.git unixnu_blueline
+cd unixnu_blueline
+git clone -b blueline https://github.com/Soneoylys/uefi-blueline.git uefi-blueline      # private, as this one
+git -C uefi-blueline submodule update --init --depth 1 -- Common/Mu Common/Mu_OEM_Sample Silicium-ACPI Silicon/Silicium/OpensslPkg/Library/OpensslLib/openssl
+git clone --depth 1 https://github.com/UniXNU/UniXNU.git refs/UniXNU-main               # UniXNUPkg and DarwinBoot
+git -C refs/UniXNU-main submodule update --init --depth 1 -- drivers/DarwinBoot
+```
+
+`.cache/`, `build/`, `uefi-blueline/` and `refs/` are not tracked here. The firmware build of this repository used
+UniXNU `ae68700` and uefi-blueline `d3c33957` (uefi-sheng `20ac23d5` plus bluelinePkg).
+
 ## Build (Windows)
 
 ```powershell
