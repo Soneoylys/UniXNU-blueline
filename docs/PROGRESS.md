@@ -69,6 +69,27 @@ power returns to Android.
 | log stops at a Qualcomm driver | that stock driver: try `mu-simplefb` |
 | UniXNU menu | stage 2 reached; next is the payload volume and DarwinBoot |
 
+## Device runs
+
+### Run 1 (2026-10-26): `blueline-unixnu-mu-simplefb.img`, refused by fastboot
+
+```
+Sending 'boot.img' (1040 KB)    OKAY
+Booting                         FAILED (remote: 'Error verifying the received boot.img: Invalid Parameter')
+```
+
+Cause, read from the stock ABL (`abl.img` → FV at 0x9FA00000 → LinuxLoader, disassembled at 0x11FEC–0x121A0):
+after decompressing the kernel to a 2 MiB-aligned address + 0x80000, LinuxLoader checks the ARM64 header:
+magic `ARM\x64`; `image_size`, if non-zero, at most the load window (else EFI_BUFFER_TOO_SMALL, "Kernel image is
+too big"); **`text_offset` must be 0x80000** (else EFI_INVALID_PARAMETER, "Kernel TextOffset does not match").
+Mu-Silicium's BootShim writes FD_BASE (0x9FC00000) there. B1c1FastbootApp prints that status as
+"Error verifying the received boot.img". The same parser takes boot header versions 0, 1 and 2.
+
+Fix: BootShim.S takes an optional `TEXT_OFFSET` (default FD_BASE, unchanged for other boards); blueline.toml sets
+`[boot_shim] text_offset = 0x80000` and `scripts/package-blueline-boot.py` passes it. The shim is position
+independent, so only the bootloader reads the field. All six images were repacked; decompressing each and
+replaying those checks passes (text_offset 0x80000, image_size 0x3000C0 = decompressed size).
+
 ## Open items
 
 - DRAM size (`[payload] dram_size`) and the userdata LBA range: read on the phone.

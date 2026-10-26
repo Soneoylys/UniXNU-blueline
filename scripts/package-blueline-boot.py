@@ -7,9 +7,11 @@ Layout, as UniXNU's `unixnu bootimg` and Mu-Silicium's build_uefi.py: gzip(BootS
 appended, as the kernel of a header v1 image with the stock Pixel 3 offsets (Resources/Configs/blueline.toml).
 An optional ramdisk (the UniXNU payload volume) goes into the ramdisk field.
 
-The ARM64 header of the uefi-sheng BootShim is text_offset = FD_BASE, image_size = shim + FD (the check of
-UniXNU's bootimg.py). A non-zero text_offset is also what recent Pixel 3 bootloaders need from a kernel header.
-The image is unpacked again and every part compared with its input.
+The ARM64 header of the uefi-sheng BootShim is text_offset, image_size = shim + FD (the check of UniXNU's
+bootimg.py). text_offset is [boot_shim] text_offset of the device config: the Pixel 3 ABL (LinuxLoader of
+b1c1-0.4-7617406) refuses anything but 0x80000 with EFI_INVALID_PARAMETER ("Kernel TextOffset does not match"),
+which "fastboot boot" reports as "Error verifying the received boot.img: Invalid Parameter". It also refuses an
+image_size larger than its load window. The image is unpacked again and every part compared with its input.
 """
 
 import argparse
@@ -36,18 +38,20 @@ def tool(name):
     return found
 
 
-def compile_shim(uefi, base, size, scratch):
+def compile_shim(uefi, base, size, text_offset, scratch):
     obj, binary = scratch / "shim.o", scratch / "shim.bin"
     subprocess.run([tool("clang"), "--target=aarch64-none-elf", "-c", f"-DFD_BASE={base:#x}", f"-DFD_SIZE={size:#x}",
-                    "-DREQUIRES_KERNEL_HEADER=1", str(uefi / "BootShim/BootShim.S"), "-o", str(obj)], check=True)
+                    f"-DTEXT_OFFSET={text_offset:#x}", "-DREQUIRES_KERNEL_HEADER=1", str(uefi / "BootShim/BootShim.S"),
+                    "-o", str(obj)], check=True)
     subprocess.run([tool("llvm-objcopy"), "-O", "binary", str(obj), str(binary)], check=True)
     shim = binary.read_bytes()
     symbols = subprocess.run([tool("llvm-nm"), "-n", str(obj)], check=True, capture_output=True, text=True).stdout
     payload = next((int(line.split()[0], 16) for line in symbols.splitlines() if line.endswith(" _Payload")), None)
     if payload != len(shim):
         sys.exit("a literal pool or padding separates _Payload from the appended firmware volume")
-    if shim[56:60] != b"ARM\x64" or struct.unpack_from("<QQ", shim, 8) != (base, len(shim) + size):
-        sys.exit("the BootShim ARM64 header is not text_offset = FD_BASE, image_size = shim + FD_SIZE")
+    if shim[56:60] != b"ARM\x64" or struct.unpack_from("<QQ", shim, 8) != (text_offset, len(shim) + size):
+        sys.exit(f"the BootShim ARM64 header is not text_offset = {text_offset:#x}, image_size = shim + FD_SIZE "
+                 "(a BootShim.S without the TEXT_OFFSET define?)")
     return shim
 
 
@@ -79,7 +83,7 @@ def main():
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="blueline-boot-") as name:
         scratch = Path(name)
-        shim = compile_shim(args.uefi, base, size, scratch)
+        shim = compile_shim(args.uefi, base, size, config["boot_shim"].get("text_offset", base), scratch)
         combined = shim + firmware
         appended = b"" if args.header_v2 else tree
         kernel = gzip.compress(combined, mtime=0) + appended
@@ -121,7 +125,8 @@ def main():
     sha = lambda b: hashlib.sha256(b).hexdigest()
     report = {"image": str(args.output.name), "image_sha256": sha(data), "image_bytes": len(data),
               "fd": str(args.fd.name), "fd_sha256": sha(firmware), "dtb_sha256": sha(tree), "shim_bytes": len(shim),
-              "ramdisk_bytes": rsize, "header_version": version, "kernel_address": hex(kaddr), "hardware_tested": False}
+              "text_offset": hex(struct.unpack_from("<Q", shim, 8)[0]), "ramdisk_bytes": rsize, "header_version": version,
+              "kernel_address": hex(kaddr), "hardware_tested": False}
     args.output.with_suffix(".json").write_text(json.dumps(report, indent=2) + "\n", newline="\n")
     print(f"{args.output}: {len(data)} bytes, sha256 {report['image_sha256']}")
 
