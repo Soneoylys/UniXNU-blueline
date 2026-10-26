@@ -1,0 +1,9 @@
+HANDOFF.md
+# Proprietary inputs (Pixel 3 factory image members, extracted XBL drivers) and build outputs
+/.cache/
+/build/
+# Separate checkouts: the firmware tree (Mu-Silicium / uefi-sheng fork, branch blueline) and read-only references
+/uefi-blueline/
+/refs/
+__pycache__/
+*.pyc

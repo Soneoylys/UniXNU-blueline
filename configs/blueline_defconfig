@@ -1,0 +1,31 @@
+# First kernel of the Pixel 3 (blueline, SDM845): UniXNU-pocket-max's pocket_max_stage1_defconfig (sheng's
+# configuration without its SM8550 storage, display, GPU and power drivers). CONFIG_XNU_<NAME> becomes XNU_<NAME>
+# for UniXNU scripts/build-xnu-4k-baseline.sh.
+#
+# Goal of this kernel: DarwinBoot hand-off, kernel entry, platform expert, console on the GOP framebuffer.
+# Not yet: a root device. NativeUfs programs the SM8550 UFS host; the SDM845 one (qcom,sdm845-ufshc at 0x1d84000,
+# UFS 2.1) needs its own backend or a variant before CONFIG_XNU_NATIVE_UFS can be set here.
+
+CONFIG_XNU_BUILD_ARCHIVES=y
+CONFIG_XNU_SOURCE_CORECRYPTO14=y
+CONFIG_XNU_SOURCE_PTHREAD=y
+CONFIG_XNU_ARM_DT_PLATFORM=y
+CONFIG_XNU_ARMCPU=y
+CONFIG_XNU_NATIVE_AES=y
+CONFIG_XNU_TRUST_CACHE_RUNTIME=y
+CONFIG_XNU_SOURCE_MOCKFS=y
+CONFIG_XNU_NATIVE_CS_HASH_CACHE=y
+# CONFIG_XNU_SHENG_PMGR is not set
+CONFIG_XNU_DT_PANIC_REGION=y
+CONFIG_XNU_ZONE_PGZ_ALIGNMENT_PROBE=y
+CONFIG_XNU_NATIVE_ARCH_TIMER=y
+CONFIG_XNU_NATIVE_PAN=y
+# CONFIG_XNU_BOOT_PROGRESS is not set
+# CONFIG_XNU_NATIVE_LEGACY_DISPLAY is not set
+# CONFIG_XNU_NATIVE_UFS is not set
+# CONFIG_XNU_NATIVE_ADRENO is not set
+
+CONFIG_XNU_CRYPTO_BOOTSTRAP="prelinked"
+CONFIG_XNU_EXTRA_LD_ARCHIVES=""
+CONFIG_XNU_NATIVE_MOBILE_DISPLAY=n
+CONFIG_XNU_ARMVIRT_PLATFORM=n

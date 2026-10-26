@@ -1,0 +1,1292 @@
+diff --git a/Platforms/Google/bluelinePkg/DeviceBuild.py b/Platforms/Google/bluelinePkg/DeviceBuild.py
+new file mode 100644
+index 00000000..11345e1a
+--- /dev/null
++++ b/Platforms/Google/bluelinePkg/DeviceBuild.py
+@@ -0,0 +1,203 @@
++##
++# Copyright (c) Microsoft Corporation.
++# SPDX-License-Identifier: BSD-2-Clause-Patent
++##
++
++import datetime
++import logging
++import os
++import uuid
++
++from io import StringIO
++from pathlib import Path
++
++from edk2toolext.environment import shell_environment
++from edk2toolext.environment.uefi_build import UefiBuilder
++from edk2toolext.invocables.edk2_platform_build import BuildSettingsManager
++from edk2toolext.invocables.edk2_pr_eval import PrEvalSettingsManager
++from edk2toolext.invocables.edk2_setup import (RequiredSubmodule, SetupSettingsManager)
++from edk2toolext.invocables.edk2_update import UpdateSettingsManager
++from edk2toolext.invocables.edk2_parse import ParseSettingsManager
++from edk2toollib.utility_functions import RunCmd
++
++# ####################################################################################### #
++#                                Common Configuration                                     #
++# ####################################################################################### #
++class CommonPlatform ():
++    PackagesSupported = ("bluelinePkg")
++    ArchSupported = ("AARCH64")
++    TargetsSupported = ("DEBUG", "RELEASE")
++    Scopes = ('blueline', 'gcc_aarch64_linux', 'edk2-build')
++    WorkspaceRoot = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
++    PackagesPath = (
++        "Platforms/Google",
++        "Common/Mu",
++        "Common/Mu_OEM_Sample",
++        "Mu_Basecore",
++        "Silicon/Qualcomm",
++        "Silicon/Silicium",
++        "Silicium-ACPI",
++        "Silicium-ACPI/Silicon/Qualcomm"
++    )
++
++# ####################################################################################### #
++#                         Configuration for Update & Setup                                #
++# ####################################################################################### #
++class SettingsManager (UpdateSettingsManager, SetupSettingsManager, PrEvalSettingsManager, ParseSettingsManager):
++
++    def GetPackagesSupported (self):
++        return CommonPlatform.PackagesSupported
++
++    def GetArchitecturesSupported (self):
++        return CommonPlatform.ArchSupported
++
++    def GetTargetsSupported (self):
++        return CommonPlatform.TargetsSupported
++
++    def GetRequiredSubmodules (self):
++        return [
++            RequiredSubmodule ("Binaries", True),
++            RequiredSubmodule ("Common/Mu", True),
++            RequiredSubmodule ("Common/Mu_OEM_Sample", True),
++            RequiredSubmodule ("Mu_Basecore", True),
++            RequiredSubmodule ("Silicium-ACPI", True),
++            RequiredSubmodule ("Silicon/Silicium/OpensslPkg/Library/OpensslLib/openssl", True)
++        ]
++
++    def SetArchitectures (self, list_of_requested_architectures):
++        unsupported = set(list_of_requested_architectures) - set(self.GetArchitecturesSupported())
++
++        if (len(unsupported) > 0):
++            errorString = ("Unsupported Architecture Requested: " + " ".join(unsupported))
++            logging.critical (errorString)
++            raise Exception (errorString)
++
++        self.ActualArchitectures = list_of_requested_architectures
++
++    def GetWorkspaceRoot (self):
++        return CommonPlatform.WorkspaceRoot
++
++    def GetActiveScopes (self):
++        return CommonPlatform.Scopes
++
++    def FilterPackagesToTest (self, changedFilesList: list, potentialPackagesList: list) -> list:
++        build_these_packages = []
++        possible_packages = potentialPackagesList.copy ()
++
++        for f in changedFilesList:
++            if "BaseTools" in f:
++                if os.path.splitext(f) not in [".txt", ".md"]:
++                    build_these_packages = possible_packages
++                    break
++
++            if "platform-build-run-steps.yml" in f:
++                build_these_packages = possible_packages
++                break
++
++        return build_these_packages
++
++    def GetPlatformDscAndConfig (self) -> tuple:
++        return ("bluelinePkg/blueline.dsc", {})
++
++    def GetName (self):
++        return "blueline"
++
++    def GetPackagesPath (self):
++        return CommonPlatform.PackagesPath
++
++# ####################################################################################### #
++#                         Actual Configuration for Platform Build                         #
++# ####################################################################################### #
++class PlatformBuilder (UefiBuilder, BuildSettingsManager):
++    def __init__ (self):
++        UefiBuilder.__init__ (self)
++
++    def AddCommandLineOptions (self, parserObj):
++        parserObj.add_argument('-a', "--arch", dest="build_arch", type=str, default="AARCH64", help="Optional - CSV of architecture to build. AARCH64 is used for PEI and DXE and is the only valid option for this platform.")
++
++    def RetrieveCommandLineOptions (self, args):
++        if args.build_arch.upper() != "AARCH64":
++            raise Exception("Invalid Arch Specified.  Please see comments in DeviceBuild.py::PlatformBuilder::AddCommandLineOptions")
++
++    def GetWorkspaceRoot (self):
++        return CommonPlatform.WorkspaceRoot
++
++    def GetPackagesPath (self):
++        result = [ shell_environment.GetBuildVars().GetValue("FEATURE_CONFIG_PATH", "") ]
++
++        for a in CommonPlatform.PackagesPath:
++            result.append(a)
++
++        return result
++
++    def GetActiveScopes (self):
++        return CommonPlatform.Scopes
++
++    def GetName (self):
++        return "bluelinePkg"
++
++    def GetLoggingLevel (self, loggerType):
++        return logging.INFO
++        return super().GetLoggingLevel(loggerType)
++
++    def SetPlatformEnv (self):
++        logging.debug ("PlatformBuilder SetPlatformEnv")
++
++        self.env.SetValue ("PRODUCT_NAME", "blueline", "Platform Hardcoded")
++        self.env.SetValue ("ACTIVE_PLATFORM", "bluelinePkg/blueline.dsc", "Platform Hardcoded")
++        self.env.SetValue ("TARGET_ARCH", "AARCH64", "Platform Hardcoded")
++        self.env.SetValue ("TOOL_CHAIN_TAG", "CLANGPDB", "set default to clangpdb")
++        self.env.SetValue ("EMPTY_DRIVE", "FALSE", "Default to false")
++        self.env.SetValue ("RUN_TESTS", "FALSE", "Default to false")
++        self.env.SetValue ("SHUTDOWN_AFTER_RUN", "FALSE", "Default to false")
++        self.env.SetValue ("BLD_*_BUILDID_STRING", "Unknown", "Default")
++        self.env.SetValue ("BUILDREPORTING", "TRUE", "Enabling build report")
++        self.env.SetValue ("BUILDREPORT_TYPES", "PCD DEPEX FLASH BUILD_FLAGS LIBRARY FIXED_ADDRESS HASH", "Setting build report types")
++        self.env.SetValue ("BLD_*_MEMORY_PROTECTION", "TRUE", "Default")
++        self.env.SetValue ("BLD_*_SHIP_MODE", "FALSE", "Default")
++        self.env.SetValue ("BLD_*_ENABLE_SECUREBOOT", self.env.GetValue("ENABLE_SECUREBOOT"), "Default")
++        self.env.SetValue ("BLD_*_FD_BASE", self.env.GetValue("FD_BASE"), "Default")
++        self.env.SetValue ("BLD_*_FD_SIZE", self.env.GetValue("FD_SIZE"), "Default")
++        self.env.SetValue ("BLD_*_FD_BLOCKS", self.env.GetValue("FD_BLOCKS"), "Default")
++
++        return 0
++
++    def PlatformPreBuild (self):
++        return 0
++
++    def PlatformPostBuild (self):
++        return 0
++
++    def FlashRomImage (self):
++        return 0
++
++if __name__ == "__main__":
++    import argparse
++    import sys
++
++    from edk2toolext.invocables.edk2_platform_build import Edk2PlatformBuild
++    from edk2toolext.invocables.edk2_setup import Edk2PlatformSetup
++    from edk2toolext.invocables.edk2_update import Edk2Update
++
++    SCRIPT_PATH = os.path.relpath (__file__)
++
++    parser = argparse.ArgumentParser (add_help=False)
++
++    parse_group = parser.add_mutually_exclusive_group()
++
++    parse_group.add_argument ("--update", "--UPDATE", action='store_true', help="Invokes stuart_update")
++    parse_group.add_argument ("--setup",  "--SETUP",  action='store_true', help="Invokes stuart_setup")
++
++    args, remaining = parser.parse_known_args()
++
++    new_args = ["stuart", "-c", SCRIPT_PATH]
++    new_args = new_args + remaining
++
++    sys.argv = new_args
++
++    if args.setup:
++        Edk2PlatformSetup().Invoke()
++    elif args.update:
++        Edk2Update().Invoke()
++    else:
++        Edk2PlatformBuild().Invoke()
+diff --git a/Platforms/Google/bluelinePkg/Drivers/BluelineBootMemoryDxe/BluelineBootMemoryDxe.c b/Platforms/Google/bluelinePkg/Drivers/BluelineBootMemoryDxe/BluelineBootMemoryDxe.c
+new file mode 100644
+index 00000000..f1c0aeae
+--- /dev/null
++++ b/Platforms/Google/bluelinePkg/Drivers/BluelineBootMemoryDxe/BluelineBootMemoryDxe.c
+@@ -0,0 +1,295 @@
++/** @file
++  Add available DRAM from the firmware FDT to the GCD memory map.
++
++  Memory additions use the limits sheng uses (shengPkg ShengBootMemoryDxe, the source of this copy) and exclude reserved ranges.
++**/
++
++#include <Uefi.h>
++#include <Library/BaseLib.h>
++#include <Library/BaseMemoryLib.h>
++#include <Library/DebugLib.h>
++#include <Library/DxeServicesTableLib.h>
++#include <Library/FdtLib.h>
++#include <Library/HobLib.h>
++#include <Library/MemoryAllocationLib.h>
++
++#define MAX_RANGES        64
++#define MIN_PIECE_SIZE    SIZE_16MB
++#define ADD_LIMIT         SIZE_1GB
++#define ADD_BELOW         SIZE_4GB     // stay inside what the MMU setup maps
++
++typedef struct {
++  UINT64  Base;
++  UINT64  End;       // exclusive
++} RANGE;
++
++STATIC
++UINT64
++ReadCells (
++  IN CONST VOID  *Data,
++  IN UINT32      Cells
++  )
++{
++  if (Cells == 2) {
++    return Fdt64ToCpu (ReadUnaligned64 (Data));
++  }
++
++  return Fdt32ToCpu (ReadUnaligned32 (Data));
++}
++
++STATIC
++UINT32
++GetCells (
++  IN CONST VOID  *Fdt,
++  IN INT32       Node,
++  IN CONST CHAR8 *Name,
++  IN UINT32      Default
++  )
++{
++  CONST VOID  *Prop;
++  INT32       Length;
++
++  Prop = FdtGetProp (Fdt, Node, Name, &Length);
++  if ((Prop == NULL) || (Length != sizeof (UINT32))) {
++    return Default;
++  }
++
++  return Fdt32ToCpu (ReadUnaligned32 (Prop));
++}
++
++STATIC
++UINTN
++CollectReg (
++  IN     CONST VOID  *Fdt,
++  IN     INT32       Node,
++  IN     UINT32      AddressCells,
++  IN     UINT32      SizeCells,
++  IN OUT RANGE       *Ranges,
++  IN     UINTN       Count
++  )
++{
++  CONST UINT8  *Reg;
++  INT32        Length;
++  UINT32       Entry;
++  INT32        Offset;
++  UINT64       Base;
++  UINT64       Size;
++
++  Reg = FdtGetProp (Fdt, Node, "reg", &Length);
++  if (Reg == NULL) {
++    return Count;
++  }
++
++  Entry = (AddressCells + SizeCells) * sizeof (UINT32);
++  for (Offset = 0; (Offset + (INT32)Entry <= Length) && (Count < MAX_RANGES); Offset += Entry) {
++    Base = ReadCells (Reg + Offset, AddressCells);
++    Size = ReadCells (Reg + Offset + AddressCells * sizeof (UINT32), SizeCells);
++    if ((Size != 0) && (Base + Size > Base)) {
++      Ranges[Count].Base = Base;
++      Ranges[Count].End  = Base + Size;
++      Count++;
++    }
++  }
++
++  return Count;
++}
++
++/**
++  Remove every part of Pieces[] that lies inside Cut.
++**/
++STATIC
++UINTN
++Subtract (
++  IN OUT RANGE  *Pieces,
++  IN     UINTN  Count,
++  IN     RANGE  Cut
++  )
++{
++  UINTN  Index;
++  UINTN  Result;
++  RANGE  Out[MAX_RANGES];
++
++  Result = 0;
++  for (Index = 0; Index < Count; Index++) {
++    if ((Cut.End <= Pieces[Index].Base) || (Cut.Base >= Pieces[Index].End)) {
++      if (Result < MAX_RANGES) {
++        Out[Result++] = Pieces[Index];
++      }
++
++      continue;
++    }
++
++    if ((Cut.Base > Pieces[Index].Base) && (Result < MAX_RANGES)) {
++      Out[Result].Base  = Pieces[Index].Base;
++      Out[Result].End   = Cut.Base;
++      Result++;
++    }
++
++    if ((Cut.End < Pieces[Index].End) && (Result < MAX_RANGES)) {
++      Out[Result].Base  = Cut.End;
++      Out[Result].End   = Pieces[Index].End;
++      Result++;
++    }
++  }
++
++  CopyMem (Pieces, Out, Result * sizeof (RANGE));
++  return Result;
++}
++
++STATIC
++VOID
++AddMemory (
++  IN CONST VOID  *Fdt
++  )
++{
++  EFI_STATUS                       Status;
++  EFI_GCD_MEMORY_SPACE_DESCRIPTOR  *Map;
++  UINTN                            MapCount;
++  INT32                            Root;
++  INT32                            Node;
++  INT32                            Reserved;
++  INT32                            Length;
++  CONST CHAR8                      *Type;
++  UINT32                           AddressCells;
++  UINT32                           SizeCells;
++  RANGE                            Banks[MAX_RANGES];
++  RANGE                            Holes[MAX_RANGES];
++  RANGE                            Pieces[MAX_RANGES];
++  UINTN                            BankCount;
++  UINTN                            HoleCount;
++  UINTN                            PieceCount;
++  UINTN                            ReservedCount;
++  RANGE                            ReservedRanges[MAX_RANGES];
++  UINTN                            Index;
++  UINTN                            Other;
++  UINT64                           Added;
++  UINT64                           Base;
++  UINT64                           End;
++
++  Root         = FdtPathOffset (Fdt, "/");
++  AddressCells = GetCells (Fdt, Root, "#address-cells", 2);
++  SizeCells    = GetCells (Fdt, Root, "#size-cells", 2);
++
++  BankCount = 0;
++  for (Node = FdtFirstSubnode (Fdt, Root); Node >= 0; Node = FdtNextSubnode (Fdt, Node)) {
++    Type = FdtGetProp (Fdt, Node, "device_type", &Length);
++    if ((Type != NULL) && (AsciiStrCmp (Type, "memory") == 0)) {
++      BankCount = CollectReg (Fdt, Node, AddressCells, SizeCells, Banks, BankCount);
++    }
++  }
++
++  ReservedCount = 0;
++  Reserved      = FdtPathOffset (Fdt, "/reserved-memory");
++  if (Reserved >= 0) {
++    UINT32  ResAddress = GetCells (Fdt, Reserved, "#address-cells", AddressCells);
++    UINT32  ResSize    = GetCells (Fdt, Reserved, "#size-cells", SizeCells);
++
++    for (Node = FdtFirstSubnode (Fdt, Reserved); Node >= 0; Node = FdtNextSubnode (Fdt, Node)) {
++      ReservedCount = CollectReg (Fdt, Node, ResAddress, ResSize, ReservedRanges, ReservedCount);
++    }
++  }
++
++  DEBUG ((DEBUG_ERROR, "BLNMEM: DT has %u memory ranges and %u reserved ranges\n", (UINT32)BankCount, (UINT32)ReservedCount));
++  if (BankCount == 0) {
++    return;
++  }
++
++  Status = gDS->GetMemorySpaceMap (&MapCount, &Map);
++  if (EFI_ERROR (Status)) {
++    return;
++  }
++
++  //
++  // Holes: DRAM the GCD does not know yet.
++  //
++  HoleCount = 0;
++  for (Index = 0; Index < BankCount; Index++) {
++    for (Other = 0; Other < MapCount; Other++) {
++      if (Map[Other].GcdMemoryType != EfiGcdMemoryTypeNonExistent) {
++        continue;
++      }
++
++      Base = MAX (Banks[Index].Base, Map[Other].BaseAddress);
++      End  = MIN (Banks[Index].End, Map[Other].BaseAddress + Map[Other].Length);
++      if ((Base < End) && (HoleCount < MAX_RANGES)) {
++        Holes[HoleCount].Base = Base;
++        Holes[HoleCount].End  = End;
++        HoleCount++;
++      }
++    }
++  }
++
++  FreePool (Map);
++
++  //
++  // Minus everything the DT reserves; what is left is added right away.
++  //
++  Added = 0;
++  for (Index = 0; (Index < HoleCount) && (Added < ADD_LIMIT); Index++) {
++    Pieces[0]  = Holes[Index];
++    PieceCount = 1;
++    for (Other = 0; Other < ReservedCount; Other++) {
++      PieceCount = Subtract (Pieces, PieceCount, ReservedRanges[Other]);
++    }
++
++    for (Other = 0; (Other < PieceCount) && (Added < ADD_LIMIT); Other++) {
++      Base = ALIGN_VALUE (Pieces[Other].Base, SIZE_2MB);
++      End  = Pieces[Other].End & ~((UINT64)SIZE_2MB - 1);
++      if ((End <= Base) || (End - Base < MIN_PIECE_SIZE) || (End > ADD_BELOW)) {
++        continue;
++      }
++
++      End = MIN (End, Base + (ADD_LIMIT - Added));
++
++      //
++      // Add and map before anything can allocate from it.
++      //
++      Status = gDS->AddMemorySpace (
++                      EfiGcdMemoryTypeSystemMemory,
++                      Base,
++                      End - Base,
++                      EFI_MEMORY_UC | EFI_MEMORY_WC | EFI_MEMORY_WT | EFI_MEMORY_WB
++                      );
++      if (!EFI_ERROR (Status)) {
++        Status = gDS->SetMemorySpaceAttributes (Base, End - Base, EFI_MEMORY_WB);
++        if (EFI_ERROR (Status)) {
++          gDS->RemoveMemorySpace (Base, End - Base);
++        } else {
++          Added += End - Base;
++        }
++      }
++
++      DEBUG ((DEBUG_ERROR, "BLNMEM: system memory 0x%lx-0x%lx %r\n", Base, End - 1, Status));
++    }
++  }
++
++  DEBUG ((DEBUG_ERROR, "BLNMEM: added 0x%lx bytes of system memory\n", Added));
++}
++
++EFI_STATUS
++EFIAPI
++BluelineBootMemoryDxeEntry (
++  IN EFI_HANDLE        ImageHandle,
++  IN EFI_SYSTEM_TABLE  *SystemTable
++  )
++{
++  EFI_HOB_GUID_TYPE  *Hob;
++  UINT64             Dtb;
++
++  Hob = GetFirstGuidHob (&gSiliciumEntryArgHobGuid);
++  if (Hob == NULL) {
++    DEBUG ((DEBUG_ERROR, "BLNMEM: no entry argument HOB\n"));
++    return EFI_SUCCESS;
++  }
++
++  Dtb = *(UINT64 *)GET_GUID_HOB_DATA (Hob);
++  if ((Dtb == 0) || ((Dtb & 3) != 0) || (FdtCheckHeader ((VOID *)(UINTN)Dtb) != 0)) {
++    DEBUG ((DEBUG_ERROR, "BLNMEM: x0 0x%lx is not a device tree\n", Dtb));
++    return EFI_SUCCESS;
++  }
++
++  DEBUG ((DEBUG_ERROR, "BLNMEM: device tree at 0x%lx, %u bytes\n", Dtb, (UINT32)FdtTotalSize ((VOID *)(UINTN)Dtb)));
++
++  AddMemory ((VOID *)(UINTN)Dtb);
++  return EFI_SUCCESS;
++}
+diff --git a/Platforms/Google/bluelinePkg/Drivers/BluelineBootMemoryDxe/BluelineBootMemoryDxe.inf b/Platforms/Google/bluelinePkg/Drivers/BluelineBootMemoryDxe/BluelineBootMemoryDxe.inf
+new file mode 100644
+index 00000000..103380ec
+--- /dev/null
++++ b/Platforms/Google/bluelinePkg/Drivers/BluelineBootMemoryDxe/BluelineBootMemoryDxe.inf
+@@ -0,0 +1,31 @@
++[Defines]
++  INF_VERSION                    = 0x0001001B
++  BASE_NAME                      = BluelineBootMemoryDxe
++  FILE_GUID                      = B1C10845-7A3E-4D59-8E21-6F0B2C9D4A17
++  MODULE_TYPE                    = DXE_DRIVER
++  VERSION_STRING                 = 1.0
++  ENTRY_POINT                    = BluelineBootMemoryDxeEntry
++
++[Sources]
++  BluelineBootMemoryDxe.c
++
++[Packages]
++  MdePkg/MdePkg.dec
++  MdeModulePkg/MdeModulePkg.dec
++  SiliciumPkg/SiliciumPkg.dec
++
++[LibraryClasses]
++  BaseLib
++  BaseMemoryLib
++  DebugLib
++  DxeServicesTableLib
++  FdtLib
++  HobLib
++  MemoryAllocationLib
++  UefiDriverEntryPoint
++
++[Guids]
++  gSiliciumEntryArgHobGuid                      ## CONSUMES
++
++[Depex]
++  TRUE
+diff --git a/Platforms/Google/bluelinePkg/Include/APRIORI.inc b/Platforms/Google/bluelinePkg/Include/APRIORI.inc
+new file mode 100644
+index 00000000..4a656188
+--- /dev/null
++++ b/Platforms/Google/bluelinePkg/Include/APRIORI.inc
+@@ -0,0 +1,107 @@
++APRIORI DXE {
++  INF MdeModulePkg/Core/Dxe/DxeMain.inf
++  INF MdeModulePkg/Universal/PCD/Dxe/Pcd.inf
++
++!if $(BLUELINE_VENDOR_HW) == 1
++  INF Binaries/blueline/QcomPkg/Drivers/EnvDxe/EnvDxe.inf
++
++!endif
++  INF MdeModulePkg/Universal/ReportStatusCodeRouter/RuntimeDxe/ReportStatusCodeRouterRuntimeDxe.inf
++  INF MdeModulePkg/Universal/StatusCodeHandler/RuntimeDxe/StatusCodeHandlerRuntimeDxe.inf
++  INF MdeModulePkg/Core/RuntimeDxe/RuntimeDxe.inf
++  INF ArmPkg/Drivers/CpuDxe/CpuDxe.inf
++  INF ArmPkg/Drivers/ArmGicDxe/ArmGicDxe.inf
++  INF ArmPkg/Drivers/TimerDxe/TimerDxe.inf
++  INF MdeModulePkg/Universal/WatchdogTimerDxe/WatchdogTimer.inf
++  INF MdeModulePkg/Universal/SecurityStubDxe/SecurityStubDxe.inf
++
++!if $(BLUELINE_VENDOR_HW) == 1
++  INF Binaries/blueline/QcomPkg/Drivers/SmemDxe/SmemDxe.inf
++  INF Binaries/blueline/QcomPkg/Drivers/DALSys/DALSys.inf
++  INF Binaries/blueline/QcomPkg/Drivers/HWIODxeDriver/HWIODxeDriver.inf
++  INF Binaries/blueline/QcomPkg/Drivers/ChipInfo/ChipInfo.inf
++  INF Binaries/blueline/QcomPkg/Drivers/PlatformInfoDxeDriver/PlatformInfoDxeDriver.inf
++  INF Binaries/blueline/QcomPkg/Drivers/HALIOMMU/HALIOMMU.inf
++
++!endif
++  INF EmbeddedPkg/MetronomeDxe/MetronomeDxe.inf
++
++!if $(BLUELINE_VENDOR_HW) == 1
++  INF Binaries/blueline/QcomPkg/Drivers/ULogDxe/ULogDxe.inf
++  INF Binaries/blueline/QcomPkg/Drivers/CmdDbDxe/CmdDbDxe.inf
++  INF Binaries/blueline/QcomPkg/Drivers/NpaDxe/NpaDxe.inf
++  INF Binaries/blueline/QcomPkg/Drivers/RpmhDxe/RpmhDxe.inf
++  INF Binaries/blueline/QcomPkg/Drivers/PdcDxe/PdcDxe.inf
++  INF Binaries/blueline/QcomPkg/Drivers/ClockDxe/ClockDxe.inf
++!endif
++!if ($(BLUELINE_VENDOR_HW) == 1) && ($(USE_CUSTOM_DISPLAY_DRIVER) == 1)
++  INF Binaries/blueline/QcomPkg/Drivers/CPRDxe/CPRDxe.inf
++!endif
++
++  INF MdeModulePkg/Universal/Disk/DiskIoDxe/DiskIoDxe.inf
++  INF MdeModulePkg/Universal/Disk/PartitionDxe/PartitionDxe.inf
++
++!if $(BLUELINE_VENDOR_HW) == 1
++  INF Binaries/blueline/QcomPkg/Drivers/SdccDxe/SdccDxe.inf
++  INF Binaries/blueline/QcomPkg/Drivers/UFSDxe/UFSDxe.inf
++  INF Binaries/blueline/QcomPkg/Drivers/TzDxe/TzDxe.inf
++
++!endif
++  INF FatPkg/EnhancedFatDxe/Fat.inf
++  INF MdeModulePkg/Universal/Disk/UnicodeCollation/EnglishDxe/EnglishDxe.inf
++  INF MdeModulePkg/Universal/Variable/RuntimeDxe/VariableRuntimeDxe.inf
++  INF EmbeddedPkg/EmbeddedMonotonicCounter/EmbeddedMonotonicCounter.inf
++  INF MdeModulePkg/Universal/ResetSystemRuntimeDxe/ResetSystemRuntimeDxe.inf
++  INF EmbeddedPkg/RealTimeClockRuntimeDxe/RealTimeClockRuntimeDxe.inf
++  INF MdeModulePkg/Universal/PrintDxe/PrintDxe.inf
++  INF MdeModulePkg/Universal/DevicePathDxe/DevicePathDxe.inf
++  INF MdeModulePkg/Universal/CapsuleRuntimeDxe/CapsuleRuntimeDxe.inf
++  INF MdeModulePkg/Universal/HiiDatabaseDxe/HiiDatabaseDxe.inf
++  INF MdeModulePkg/Universal/BdsDxe/BdsDxe.inf
++
++!if $(BLUELINE_VENDOR_HW) == 1
++  INF Binaries/blueline/QcomPkg/Drivers/DALTLMM/DALTLMM.inf
++  INF Binaries/blueline/QcomPkg/Drivers/SPMI/SPMI.inf
++  INF Binaries/blueline/QcomPkg/Drivers/PmicDxe/PmicDxe.inf
++  INF Binaries/blueline/QcomPkg/Drivers/AdcDxe/AdcDxe.inf
++  INF Binaries/blueline/QcomPkg/Drivers/UsbPwrCtrlDxe/UsbPwrCtrlDxe.inf
++  INF Binaries/blueline/QcomPkg/Drivers/QcomChargerDxeLA/QcomChargerDxeLA.inf
++  INF Binaries/blueline/QcomPkg/Drivers/ChargerExDxe/ChargerExDxe.inf
++  INF Binaries/blueline/QcomPkg/Drivers/UsbfnDwc3Dxe/UsbfnDwc3Dxe.inf
++
++!endif
++  INF MdeModulePkg/Bus/Usb/UsbBusDxe/UsbBusDxe.inf
++  INF MdeModulePkg/Bus/Usb/UsbKbDxe/UsbKbDxe.inf
++  INF MdeModulePkg/Bus/Usb/UsbMassStorageDxe/UsbMassStorageDxe.inf
++
++!if $(BLUELINE_VENDOR_HW) == 1
++  INF Binaries/blueline/QcomPkg/Drivers/UsbMsdDxe/UsbMsdDxe.inf
++  INF Binaries/blueline/QcomPkg/Drivers/UsbDeviceDxe/UsbDeviceDxe.inf
++  INF Binaries/blueline/QcomPkg/Drivers/UsbConfigDxe/UsbConfigDxe.inf
++
++!endif
++  INF EmbeddedPkg/SimpleTextInOutSerial/SimpleTextInOutSerial.inf
++  INF MdeModulePkg/Universal/Console/ConPlatformDxe/ConPlatformDxe.inf
++  INF MdeModulePkg/Universal/Console/ConSplitterDxe/ConSplitterDxe.inf
++  INF MdeModulePkg/Universal/Console/GraphicsConsoleDxe/GraphicsConsoleDxe.inf
++
++!if $(BLUELINE_VENDOR_HW) == 1
++  INF Binaries/blueline/QcomPkg/Drivers/ButtonsDxe/ButtonsDxe.inf
++  INF Binaries/blueline/QcomPkg/Drivers/TsensDxe/TsensDxe.inf
++
++!endif
++!if ($(BLUELINE_VENDOR_HW) == 1) && ($(USE_CUSTOM_DISPLAY_DRIVER) == 1)
++  INF Binaries/blueline/QcomPkg/Drivers/DisplayDxe/DisplayDxe.inf
++  INF QcomPkg/Drivers/DisplayReEnablerDxe/DisplayReEnablerDxe.inf
++!else
++  INF SiliciumPkg/Drivers/SimpleFbDxe/SimpleFbDxe.inf
++!endif
++
++!if $(BLUELINE_VENDOR_HW) == 1
++  INF Binaries/blueline/QcomPkg/Drivers/LimitsDxe/LimitsDxe.inf
++  INF Binaries/blueline/QcomPkg/Drivers/GpiDxe/GpiDxe.inf
++  INF Binaries/blueline/QcomPkg/Drivers/HashDxe/HashDxe.inf
++  INF Binaries/blueline/QcomPkg/Drivers/RngDxe/RngDxe.inf
++  INF Binaries/blueline/QcomPkg/Drivers/DDRInfoDxe/DDRInfoDxe.inf
++!endif
++}
+diff --git a/Platforms/Google/bluelinePkg/Include/DXE.inc b/Platforms/Google/bluelinePkg/Include/DXE.inc
+new file mode 100644
+index 00000000..69bb933f
+--- /dev/null
++++ b/Platforms/Google/bluelinePkg/Include/DXE.inc
+@@ -0,0 +1,109 @@
++  INF MdeModulePkg/Core/Dxe/DxeMain.inf
++  INF MdeModulePkg/Universal/PCD/Dxe/Pcd.inf
++  INF ArmPkg/Drivers/CpuDxe/CpuDxe.inf
++  INF MdeModulePkg/Core/RuntimeDxe/RuntimeDxe.inf
++  INF MdeModulePkg/Universal/SecurityStubDxe/SecurityStubDxe.inf
++
++!if $(BLUELINE_VENDOR_HW) == 1
++  INF Binaries/blueline/QcomPkg/Drivers/TzDxe/TzDxe.inf
++
++!endif
++  INF MdeModulePkg/Universal/WatchdogTimerDxe/WatchdogTimer.inf
++  INF MdeModulePkg/Universal/CapsuleRuntimeDxe/CapsuleRuntimeDxe.inf
++  INF MdeModulePkg/Universal/ReportStatusCodeRouter/RuntimeDxe/ReportStatusCodeRouterRuntimeDxe.inf
++  INF MdeModulePkg/Universal/StatusCodeHandler/RuntimeDxe/StatusCodeHandlerRuntimeDxe.inf
++  INF MdeModulePkg/Universal/Variable/RuntimeDxe/VariableRuntimeDxe.inf
++  INF EmbeddedPkg/EmbeddedMonotonicCounter/EmbeddedMonotonicCounter.inf
++  INF EmbeddedPkg/SimpleTextInOutSerial/SimpleTextInOutSerial.inf
++  INF MdeModulePkg/Universal/ResetSystemRuntimeDxe/ResetSystemRuntimeDxe.inf
++  INF EmbeddedPkg/RealTimeClockRuntimeDxe/RealTimeClockRuntimeDxe.inf
++  INF EmbeddedPkg/MetronomeDxe/MetronomeDxe.inf
++  INF MdeModulePkg/Universal/PrintDxe/PrintDxe.inf
++  INF MdeModulePkg/Universal/DevicePathDxe/DevicePathDxe.inf
++  INF MdeModulePkg/Universal/Console/ConPlatformDxe/ConPlatformDxe.inf
++  INF MdeModulePkg/Universal/Console/ConSplitterDxe/ConSplitterDxe.inf
++  INF MdeModulePkg/Universal/Console/GraphicsConsoleDxe/GraphicsConsoleDxe.inf
++  INF MdeModulePkg/Universal/HiiDatabaseDxe/HiiDatabaseDxe.inf
++
++!if $(BLUELINE_VENDOR_HW) == 1
++  INF Binaries/blueline/QcomPkg/Drivers/EnvDxe/EnvDxe.inf
++
++!endif
++  INF ArmPkg/Drivers/ArmGicDxe/ArmGicDxe.inf
++  INF ArmPkg/Drivers/TimerDxe/TimerDxe.inf
++
++!if $(BLUELINE_VENDOR_HW) == 1
++  INF Binaries/blueline/QcomPkg/Drivers/ChipInfo/ChipInfo.inf
++  INF Binaries/blueline/QcomPkg/Drivers/SmemDxe/SmemDxe.inf
++  INF Binaries/blueline/QcomPkg/Drivers/ULogDxe/ULogDxe.inf
++  INF Binaries/blueline/QcomPkg/Drivers/NpaDxe/NpaDxe.inf
++  INF Binaries/blueline/QcomPkg/Drivers/CmdDbDxe/CmdDbDxe.inf
++  INF Binaries/blueline/QcomPkg/Drivers/RpmhDxe/RpmhDxe.inf
++!endif
++!if ($(BLUELINE_VENDOR_HW) == 1) && ($(USE_CUSTOM_DISPLAY_DRIVER) == 1)
++  INF Binaries/blueline/QcomPkg/Drivers/CPRDxe/CPRDxe.inf
++!endif
++!if $(BLUELINE_VENDOR_HW) == 1
++  INF Binaries/blueline/QcomPkg/Drivers/PdcDxe/PdcDxe.inf
++
++!endif
++  INF MdeModulePkg/Universal/Disk/DiskIoDxe/DiskIoDxe.inf
++  INF MdeModulePkg/Universal/Disk/PartitionDxe/PartitionDxe.inf
++  INF FatPkg/EnhancedFatDxe/Fat.inf
++  INF MdeModulePkg/Universal/Disk/UnicodeCollation/EnglishDxe/EnglishDxe.inf
++
++!if $(BLUELINE_VENDOR_HW) == 1
++  INF Binaries/blueline/QcomPkg/Drivers/DALSys/DALSys.inf
++  INF Binaries/blueline/QcomPkg/Drivers/ClockDxe/ClockDxe.inf
++  INF Binaries/blueline/QcomPkg/Drivers/HALIOMMU/HALIOMMU.inf
++  INF Binaries/blueline/QcomPkg/Drivers/HWIODxeDriver/HWIODxeDriver.inf
++  INF Binaries/blueline/QcomPkg/Drivers/GpiDxe/GpiDxe.inf
++  INF Binaries/blueline/QcomPkg/Drivers/SPMI/SPMI.inf
++  INF Binaries/blueline/QcomPkg/Drivers/SdccDxe/SdccDxe.inf
++  INF Binaries/blueline/QcomPkg/Drivers/UFSDxe/UFSDxe.inf
++  INF Binaries/blueline/QcomPkg/Drivers/DALTLMM/DALTLMM.inf
++
++!endif
++!if ($(BLUELINE_VENDOR_HW) == 1) && ($(USE_CUSTOM_DISPLAY_DRIVER) == 1)
++  INF Binaries/blueline/QcomPkg/Drivers/DisplayDxe/DisplayDxe.inf
++  INF QcomPkg/Drivers/DisplayReEnablerDxe/DisplayReEnablerDxe.inf
++!else
++  INF SiliciumPkg/Drivers/SimpleFbDxe/SimpleFbDxe.inf
++!endif
++
++!if $(BLUELINE_VENDOR_HW) == 1
++  INF Binaries/blueline/QcomPkg/Drivers/PlatformInfoDxeDriver/PlatformInfoDxeDriver.inf
++  INF Binaries/blueline/QcomPkg/Drivers/ButtonsDxe/ButtonsDxe.inf
++  INF Binaries/blueline/QcomPkg/Drivers/PmicDxe/PmicDxe.inf
++  INF Binaries/blueline/QcomPkg/Drivers/ChargerExDxe/ChargerExDxe.inf
++  INF Binaries/blueline/QcomPkg/Drivers/QcomChargerDxeLA/QcomChargerDxeLA.inf
++  INF Binaries/blueline/QcomPkg/Drivers/UsbPwrCtrlDxe/UsbPwrCtrlDxe.inf
++  INF Binaries/blueline/QcomPkg/Drivers/AdcDxe/AdcDxe.inf
++  INF Binaries/blueline/QcomPkg/Drivers/TsensDxe/TsensDxe.inf
++  INF Binaries/blueline/QcomPkg/Drivers/LimitsDxe/LimitsDxe.inf
++  INF Binaries/blueline/QcomPkg/Drivers/DDRInfoDxe/DDRInfoDxe.inf
++  INF Binaries/blueline/QcomPkg/Drivers/UsbfnDwc3Dxe/UsbfnDwc3Dxe.inf
++
++!endif
++  INF MdeModulePkg/Bus/Usb/UsbBusDxe/UsbBusDxe.inf
++  INF MdeModulePkg/Bus/Usb/UsbKbDxe/UsbKbDxe.inf
++  INF MdeModulePkg/Bus/Usb/UsbMassStorageDxe/UsbMassStorageDxe.inf
++
++!if $(BLUELINE_VENDOR_HW) == 1
++  INF Binaries/blueline/QcomPkg/Drivers/UsbMsdDxe/UsbMsdDxe.inf
++  INF Binaries/blueline/QcomPkg/Drivers/UsbDeviceDxe/UsbDeviceDxe.inf
++  INF Binaries/blueline/QcomPkg/Drivers/UsbConfigDxe/UsbConfigDxe.inf
++  INF Binaries/blueline/QcomPkg/Drivers/HashDxe/HashDxe.inf
++  INF Binaries/blueline/QcomPkg/Drivers/RngDxe/RngDxe.inf
++
++!endif
++  INF MdeModulePkg/Universal/BdsDxe/BdsDxe.inf
++
++  # UniXNU (as sheng): the RAM disk driver publishes the boot image ramdisk (the payload volume) as Block I/O;
++  # the XNU loader is part of the firmware, since a driver loaded from a volume is refused by image verification.
++  INF UniXNUPkg/Driver/UniXNURamDiskDxe/UniXNURamDiskDxe.inf
++  INF DarwinBootPkg/Driver/DarwinBoot.inf
++!if $(BLUELINE_VENDOR_HW) == 0
++  # Without the stock drivers no RAM partition table is read: DRAM comes from the FDT ABL passes in x0.
++  INF bluelinePkg/Drivers/BluelineBootMemoryDxe/BluelineBootMemoryDxe.inf
++!endif
+diff --git a/Platforms/Google/bluelinePkg/Include/RAW.inc b/Platforms/Google/bluelinePkg/Include/RAW.inc
+new file mode 100644
+index 00000000..6ef94cd3
+--- /dev/null
++++ b/Platforms/Google/bluelinePkg/Include/RAW.inc
+@@ -0,0 +1,9 @@
++  FILE FREEFORM = A1E235DE-E825-4591-9623-C43175811826 {
++    SECTION UI = "SecParti.cfg"
++    SECTION RAW = Binaries/blueline/RawFiles/SecParti.cfg
++  }
++
++  FILE FREEFORM = 45FE4B7C-150C-45DA-A021-4BEB2048EC6F {
++    SECTION UI = "QcomChargerCfg.cfg"
++    SECTION RAW = Binaries/blueline/RawFiles/QcomChargerCfg.cfg
++  }
+diff --git a/Platforms/Google/bluelinePkg/Library/ConfigurationMapLib/ConfigurationMapLib.c b/Platforms/Google/bluelinePkg/Library/ConfigurationMapLib/ConfigurationMapLib.c
+new file mode 100644
+index 00000000..7e4463b0
+--- /dev/null
++++ b/Platforms/Google/bluelinePkg/Library/ConfigurationMapLib/ConfigurationMapLib.c
+@@ -0,0 +1,43 @@
++#include <Library/ConfigurationMapLib.h>
++
++//
++// [ConfigParameters] of the stock Pixel 3 XBL uefiplat.cfg (bootloader b1c1-0.4-7617406).
++//
++STATIC
++EFI_CONFIGURATION_ENTRY_DESCRIPTOR
++gConfigurationDescriptor[] = {
++  // Configuration Map
++  {"NumCpusFuseAddr", 0x5C04C},
++  {"EnableShell", 0x1},
++  {"SharedIMEMBaseAddr", 0x146BF000},
++  {"DloadCookieAddr", 0x01FD3000},
++  {"DloadCookieValue", 0x10},
++  {"NumCpus", 8},
++  {"NumActiveCores", 8},
++  {"MaxLogFileSize", 0x400000},
++  {"UefiMemUseThreshold", 0x94},
++  {"USBHS1_Config", 0x0},
++  {"UsbFnIoRevNum", 0x00010001},
++  {"PwrBtnShutdownFlag", 0x0},
++  {"Sdc1GpioConfigOn", 0x1E92},
++  {"Sdc2GpioConfigOn", 0x1E92},
++  {"Sdc1GpioConfigOff", 0xA00},
++  {"Sdc2GpioConfigOff", 0xA00},
++  {"EnableSDHCSwitch", 0x1},
++  {"SecurityFlag", 0xC4},
++  {"TzAppsRegnAddr", 0x86D00000},
++  {"TzAppsRegnSize", 0x02200000},
++  {"ImageFVFlashed", 0x0},
++  {"EnableLogFsSyncInRetail", 0x0},
++  {"EnableEarlySplashScreen", 0x0}
++};
++
++VOID
++GetConfigurationMap (
++  OUT EFI_CONFIGURATION_ENTRY_DESCRIPTOR **ConfigurationDescriptor,
++  OUT UINT8                               *ConfigurationDescriptorCount)
++{
++  // Pass Data
++  *ConfigurationDescriptor      = gConfigurationDescriptor;
++  *ConfigurationDescriptorCount = ARRAY_SIZE (gConfigurationDescriptor);
++}
+diff --git a/Platforms/Google/bluelinePkg/Library/ConfigurationMapLib/ConfigurationMapLib.inf b/Platforms/Google/bluelinePkg/Library/ConfigurationMapLib/ConfigurationMapLib.inf
+new file mode 100644
+index 00000000..c7b7ff71
+--- /dev/null
++++ b/Platforms/Google/bluelinePkg/Library/ConfigurationMapLib/ConfigurationMapLib.inf
+@@ -0,0 +1,14 @@
++[Defines]
++  INF_VERSION                    = 0x00010005
++  BASE_NAME                      = ConfigurationMapLib
++  FILE_GUID                      = D7DDE228-62E4-43E3-B5A1-AB29FB9B0A35
++  MODULE_TYPE                    = BASE
++  VERSION_STRING                 = 1.0
++  LIBRARY_CLASS                  = ConfigurationMapLib
++
++[Sources]
++  ConfigurationMapLib.c
++
++[Packages]
++  MdePkg/MdePkg.dec
++  QcomPkg/QcomPkg.dec
+diff --git a/Platforms/Google/bluelinePkg/Library/MemoryMapLib/MemoryMapLib.c b/Platforms/Google/bluelinePkg/Library/MemoryMapLib/MemoryMapLib.c
+new file mode 100644
+index 00000000..8b1ae60c
+--- /dev/null
++++ b/Platforms/Google/bluelinePkg/Library/MemoryMapLib/MemoryMapLib.c
+@@ -0,0 +1,107 @@
++#include <Library/MemoryMapLib.h>
++
++//
++// Google Pixel 3 (blueline). DDR and register regions are the [MemoryMap] and [RegisterMap] of the
++// stock XBL uefiplat.cfg (bootloader b1c1-0.4-7617406). The stock LA config leaves the no-map carve-outs
++// of the stock device tree out of the map (Linux takes them from /reserved-memory), so they are added
++// here as uncached reserved regions; RamManagerDxe would otherwise hand them out as free memory.
++//
++STATIC
++EFI_MEMORY_REGION_DESCRIPTOR
++gMemoryDescriptor[] = {
++  // Name, Address, Length, HobOption, ResourceType, ResourceAttribute, MemoryType, ArmAttribute
++
++  // DDR Regions
++  {"Kernel",             0x80000000, 0x05600000, AddMem, SYS_MEM, SYS_MEM_CAP, Reserv, WRITE_BACK_XN},
++  {"HYP Reserved",       0x85700000, 0x005D0000, HobOnlyNoCacheSetting, MEM_RES, UNCACHEABLE, Reserv, UNCACHED_UNBUFFERED_XN},
++  {"ipc_shm",            0x85CD0000, 0x00020000, AddMem, SYS_MEM, SYS_MEM_CAP, BsData, WRITE_BACK_XN},
++  {"boot_info",          0x85CF0000, 0x00010000, AddMem, SYS_MEM, SYS_MEM_CAP, BsData, WRITE_BACK_XN},
++  {"XBL Reserved",       0x85E00000, 0x00100000, HobOnlyNoCacheSetting, MEM_RES, UNCACHEABLE, Reserv, UNCACHED_UNBUFFERED_XN},
++  {"HLOS1",              0x85F00000, 0x000C0000, AddMem, SYS_MEM, SYS_MEM_CAP, BsData, WRITE_BACK_XN},
++  {"Removed Reserved",   0x85FC0000, 0x00020000, HobOnlyNoCacheSetting, MEM_RES, UNCACHEABLE, Reserv, UNCACHED_UNBUFFERED_XN},
++  {"AOP CMD DB",         0x85FE0000, 0x00020000, AddMem, SYS_MEM, SYS_MEM_CAP, BsData, WRITE_BACK_XN},
++  {"SMEM",               0x86000000, 0x00200000, AddMem, MEM_RES, UNCACHEABLE, Reserv, UNCACHED_UNBUFFERED_XN},
++  {"TZ Reserved",        0x86200000, 0x02D00000, HobOnlyNoCacheSetting, MEM_RES, UNCACHEABLE, Reserv, UNCACHED_UNBUFFERED_XN},
++  {"PIL Reserved",       0x8AB00000, 0x0D100000, HobOnlyNoCacheSetting, MEM_RES, UNCACHEABLE, Reserv, UNCACHED_UNBUFFERED_XN},
++  {"DXE Heap",           0x97C00000, 0x05730000, AddMem, SYS_MEM, SYS_MEM_CAP, Conv,   WRITE_BACK_XN},
++  {"DBI Dump",           0x9D330000, 0x000D0000, NoHob,  MMAP_IO, INITIALIZED, Conv,   NS_DEVICE},
++  {"Display Reserved",   0x9D400000, 0x02400000, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, WRITE_THROUGH_XN},
++  {"FV Region",          0x9F800000, 0x00200000, AddMem, SYS_MEM, SYS_MEM_CAP, BsData, WRITE_BACK_XN},
++  {"ABOOT FV",           0x9FA00000, 0x00200000, AddMem, SYS_MEM, SYS_MEM_CAP, Reserv, WRITE_BACK_XN},
++  {"UEFI FD",            0x9FC00000, 0x00300000, AddMem, SYS_MEM, SYS_MEM_CAP, BsData, WRITE_BACK},
++  {"SEC Heap",           0x9FF00000, 0x0008C000, AddMem, SYS_MEM, SYS_MEM_CAP, BsData, WRITE_BACK_XN},
++  {"CPU Vectors",        0x9FF8C000, 0x00001000, AddMem, SYS_MEM, SYS_MEM_CAP, BsData, WRITE_BACK},
++  {"MMU PageTables",     0x9FF8D000, 0x00003000, AddMem, SYS_MEM, SYS_MEM_CAP, BsData, WRITE_BACK_XN},
++  {"UEFI Stack",         0x9FF90000, 0x00040000, AddMem, SYS_MEM, SYS_MEM_CAP, BsData, WRITE_BACK_XN},
++  {"HLOS2",              0x9FFD0000, 0x00027000, AddMem, SYS_MEM, SYS_MEM_CAP, BsData, WRITE_BACK_XN},
++  {"Log Buffer",         0x9FFF7000, 0x00008000, AddMem, SYS_MEM, SYS_MEM_CAP, RtData, WRITE_BACK_XN},
++  {"Info Blk",           0x9FFFF000, 0x00001000, AddMem, SYS_MEM, SYS_MEM_CAP, RtData, WRITE_BACK_XN},
++  {"MLVM",               0xA0000000, 0x07800000, AddMem, SYS_MEM, SYS_MEM_CAP, Reserv, WRITE_BACK_XN},
++  {"Metrics",            0xA7800000, 0x00001000, AddMem, SYS_MEM, SYS_MEM_CAP, Reserv, WRITE_BACK_XN},
++  {"BootDeviceInfo",     0xA7801000, 0x00001000, AddMem, SYS_MEM, SYS_MEM_CAP, Reserv, WRITE_BACK_XN},
++  {"Kernel Extended",    0xB0000000, 0x08000000, AddMem, SYS_MEM, SYS_MEM_CAP, Reserv, WRITE_BACK_XN},
++
++  // Other Regions
++  {"AOP_SS_MSG_RAM",     0x0C300000, 0x00100000, NoHob,  MMAP_IO, INITIALIZED, Conv,   NS_DEVICE},
++  {"IMEM Base",          0x14680000, 0x0003F000, NoHob,  MMAP_IO, INITIALIZED, Conv,   NS_DEVICE},
++  {"IMEM Cookie Base",   0x146BF000, 0x00001000, AddDev, MMAP_IO, INITIALIZED, Conv,   NS_DEVICE},
++
++  // Register Regions
++  {"GCC CLK CTL",        0x00100000, 0x000B0000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"SECURITY CONTROL",   0x00780000, 0x00007000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"PRNG_CFG_PRNG",      0x00790000, 0x00010000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"QUPV3_0_GSI",        0x00800000, 0x000D0000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"QUPV3_1_GSI",        0x00A00000, 0x000D0000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"UFS UFS REGS",       0x01D80000, 0x00020000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"CRYPTO0 CRYPTO",     0x01DC0000, 0x00040000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"TCSR_TCSR_REGS",     0x01FC0000, 0x00030000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"TLMM_EAST",          0x03500000, 0x00300000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"TLMM_NORTH",         0x03900000, 0x00300000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"TLMM_SOUTH",         0x03D00000, 0x00300000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"GPU_GMU_GX_BLK",     0x0506A000, 0x00001000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"GPU_GMU_CX_BLK",     0x0507D000, 0x0000C000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"GPU_ISENSE",         0x0508B000, 0x00002000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"GPU_CC",             0x05090000, 0x00010000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"GPU_CPR",            0x0509A000, 0x00004000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"QUPV3_SSC_GSI",      0x05A00000, 0x000D0000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"PERIPH_SS",          0x08800000, 0x00200000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"USB30_PRIM",         0x0A600000, 0x0011B000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"VIDEO_CC",           0x0AB00000, 0x00010000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"TITAN_CAM_CC",       0x0AD00000, 0x00010000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"MDSS",               0x0AE00000, 0x00134000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"DISP_CC",            0x0AF00000, 0x00020000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"PDC_DISPLAY",        0x0B290000, 0x00010000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"PDC_DISP_SEQ",       0x0B490000, 0x00010000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"RPMH_BCM_BCM_TOP",   0x0BA00000, 0x00200000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"RPMH_CPRF",          0x0C200000, 0x0000F000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"SLP_CNTR",           0x0C221000, 0x00001000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"TSENS0",             0x0C222000, 0x00001000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"TSENS1",             0x0C223000, 0x00001000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"TSENS0_TM",          0x0C263000, 0x00001000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"PSHOLD",             0x0C264000, 0x00001000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"TSENS1_TM",          0x0C265000, 0x00001000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"PMIC_ARB_SPMI",      0x0C400000, 0x02800000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"SMMU",               0x15000000, 0x000D0000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"GOLD_SAW4_SRM",      0x17830000, 0x00001000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"SILVER_SAW4_SRM",    0x17840000, 0x00001000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"GOLD_CLK_CTL",       0x178B0000, 0x00001000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"SILVER_CLK_CTL",     0x178C0000, 0x00001000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"L3_CLK_CTL",         0x178D0000, 0x00001000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"APSS_WDT_TMR1",      0x17980000, 0x00001000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"APSS_IPC_INT",       0x17990000, 0x00001000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"APSS_RSC_RSCCR",     0x179C0000, 0x00030000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"APSS_GIC500_GICD",   0x17A00000, 0x00010000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"APSS_GIC500_GICR",   0x17A60000, 0x00100000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"QTIMER",             0x17C00000, 0x00110000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
++  {"OSM",                0x17D20000, 0x000B0000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE}
++};
++
++VOID
++GetMemoryMap (
++  OUT EFI_MEMORY_REGION_DESCRIPTOR **MemoryDescriptor,
++  OUT UINT8                         *MemoryDescriptorCount)
++{
++  // Pass Data
++  *MemoryDescriptor      = gMemoryDescriptor;
++  *MemoryDescriptorCount = ARRAY_SIZE (gMemoryDescriptor);
++}
+diff --git a/Platforms/Google/bluelinePkg/Library/MemoryMapLib/MemoryMapLib.inf b/Platforms/Google/bluelinePkg/Library/MemoryMapLib/MemoryMapLib.inf
+new file mode 100644
+index 00000000..b0fd0f2b
+--- /dev/null
++++ b/Platforms/Google/bluelinePkg/Library/MemoryMapLib/MemoryMapLib.inf
+@@ -0,0 +1,15 @@
++[Defines]
++  INF_VERSION                    = 0x00010005
++  BASE_NAME                      = MemoryMapLib
++  FILE_GUID                      = 375C4FF0-1905-4BA7-A5CA-7D40D25F5EF3
++  MODULE_TYPE                    = BASE
++  VERSION_STRING                 = 1.0
++  LIBRARY_CLASS                  = MemoryMapLib
++
++[Sources]
++  MemoryMapLib.c
++
++[Packages]
++  ArmPkg/ArmPkg.dec
++  MdePkg/MdePkg.dec
++  SiliciumPkg/SiliciumPkg.dec
+diff --git a/Platforms/Google/bluelinePkg/blueline.dec b/Platforms/Google/bluelinePkg/blueline.dec
+new file mode 100644
+index 00000000..e69de29b
+diff --git a/Platforms/Google/bluelinePkg/blueline.dsc b/Platforms/Google/bluelinePkg/blueline.dsc
+new file mode 100644
+index 00000000..63a4f6b6
+--- /dev/null
++++ b/Platforms/Google/bluelinePkg/blueline.dsc
+@@ -0,0 +1,109 @@
++##
++#  Copyright (c) 2011 - 2022, ARM Limited. All rights reserved.
++#  Copyright (c) 2014, Linaro Limited. All rights reserved.
++#  Copyright (c) 2015 - 2020, Intel Corporation. All rights reserved.
++#  Copyright (c) 2018, Bingxing Wang. All rights reserved.
++#  Copyright (c) Microsoft Corporation.
++#
++#  SPDX-License-Identifier: BSD-2-Clause-Patent
++##
++
++################################################################################
++#
++# Defines Section - statements that will be processed to create a Makefile.
++#
++################################################################################
++[Defines]
++  PLATFORM_NAME                  = blueline
++  PLATFORM_GUID                  = 3B0C9F4E-6E1D-4C8A-9F52-B1C1D8450003
++  PLATFORM_VERSION               = 0.1
++  DSC_SPECIFICATION              = 0x00010005
++  OUTPUT_DIRECTORY               = Build/bluelinePkg
++  SUPPORTED_ARCHITECTURES        = AARCH64
++  BUILD_TARGETS                  = RELEASE|DEBUG
++  SKUID_IDENTIFIER               = DEFAULT
++  FLASH_DEFINITION               = bluelinePkg/blueline.fdf
++
++  #
++  # 1: the stock XBL DisplayDxe initializes the panel (as polaris). 0: SimpleFbDxe takes over the framebuffer
++  # ABL left at 0x9D400000. The build command line (-D USE_CUSTOM_DISPLAY_DRIVER=...) selects one.
++  #
++!ifndef USE_CUSTOM_DISPLAY_DRIVER
++  DEFINE USE_CUSTOM_DISPLAY_DRIVER = 1
++!endif
++
++  #
++  # 1: load the stock Pixel 3 XBL drivers (SMEM, clocks, RPMh, PMIC, UFS, USB, buttons, ...), as polaris.
++  # 0: Mu drivers only (as sheng's SHENG_VENDOR_HW = 0): no UFS and no keys, but nothing touches the panel ABL
++  #    left scanning out, and DRAM comes from ABL's FDT (BluelineBootMemoryDxe).
++  #
++!ifndef BLUELINE_VENDOR_HW
++  DEFINE BLUELINE_VENDOR_HW = 1
++!endif
++
++!include NapaliPkg/NapaliPkg.dsc.inc
++
++!if ($(USE_CUSTOM_DISPLAY_DRIVER) == 1) && ($(BLUELINE_VENDOR_HW) == 0)
++  !error The stock DisplayDxe chain needs BLUELINE_VENDOR_HW = 1
++!endif
++
++[PcdsFixedAtBuild]
++  #
++  # DDR Memory
++  #
++  gArmTokenSpaceGuid.PcdSystemMemoryBase|0x80000000
++
++  #
++  # UEFI Stack
++  #
++  gArmPlatformTokenSpaceGuid.PcdCPUCoresStackBase|0x9FF90000
++  gArmPlatformTokenSpaceGuid.PcdCPUCorePrimaryStackSize|0x40000
++
++  #
++  # SMBIOS
++  #
++  gSiliciumPkgTokenSpaceGuid.PcdSmbiosSystemManufacturer|"Google"
++  gSiliciumPkgTokenSpaceGuid.PcdSmbiosSystemModel|"Pixel 3"
++  gSiliciumPkgTokenSpaceGuid.PcdSmbiosSystemRetailModel|"blueline"
++  gSiliciumPkgTokenSpaceGuid.PcdSmbiosSystemRetailSku|"Pixel_3_blueline"
++  gSiliciumPkgTokenSpaceGuid.PcdSmbiosSystemBoardModel|"B1 DVT1.1"
++
++  #
++  # Simple Frame Buffer
++  #
++  gSiliciumPkgTokenSpaceGuid.PcdFrameBufferWidth|1080
++  gSiliciumPkgTokenSpaceGuid.PcdFrameBufferHeight|2160
++  gSiliciumPkgTokenSpaceGuid.PcdFrameBufferColorDepth|32
++
++  #
++  # Platform PEI
++  #
++  gQcomPkgTokenSpaceGuid.PcdPlatformType|"LA"
++!if $(BLUELINE_VENDOR_HW) == 0
++  # As sheng: without the stock drivers nothing reads the HOBs of the stock UEFI's leftover FD window.
++  gQcomPkgTokenSpaceGuid.PcdBuildXblHobs|FALSE
++!endif
++
++[Components]
++  #
++  # UniXNU boot manager and XNU loader (as uefi-sheng)
++  #
++  UniXNUPkg/Application/UniXNU/UniXNU.inf
++  UniXNUPkg/Driver/UniXNUDxe/UniXNUDxe.inf
++  UniXNUPkg/Driver/UniXNURamDiskDxe/UniXNURamDiskDxe.inf
++  DarwinBootPkg/Driver/DarwinBoot.inf
++  bluelinePkg/Drivers/BluelineBootMemoryDxe/BluelineBootMemoryDxe.inf
++
++[LibraryClasses]
++  UniXNULib|UniXNUPkg/Library/UniXNULib/UniXNULib.inf
++  FdtLib|MdePkg/Library/BaseFdtLib/BaseFdtLib.inf
++
++  #
++  # Memory Libraries
++  #
++  MemoryMapLib|bluelinePkg/Library/MemoryMapLib/MemoryMapLib.inf
++
++  #
++  # QCOM Libraries
++  #
++  ConfigurationMapLib|bluelinePkg/Library/ConfigurationMapLib/ConfigurationMapLib.inf
+diff --git a/Platforms/Google/bluelinePkg/blueline.fdf b/Platforms/Google/bluelinePkg/blueline.fdf
+new file mode 100644
+index 00000000..5db45d63
+--- /dev/null
++++ b/Platforms/Google/bluelinePkg/blueline.fdf
+@@ -0,0 +1,137 @@
++##
++#  Copyright (c) 2018, Linaro Limited. All rights reserved.
++#
++#  SPDX-License-Identifier: BSD-2-Clause-Patent
++##
++
++################################################################################
++#
++# FD Section
++# The [FD] Section is made up of the definition statements and a
++# description of what goes into  the Flash Device Image.  Each FD section
++# defines one flash "device" image.  A flash device image may be one of
++# the following: Removable media bootable image (like a boot floppy
++# image,) an Option ROM image (that would be "flashed" into an add-in
++# card,) a System "Flash"  image (that would be burned into a system's
++# flash) or an Update ("Capsule") image that will be used to update and
++# existing system flash.
++#
++################################################################################
++
++[FD.SILICIUM_UEFI]
++BaseAddress   = $(FD_BASE)|gArmTokenSpaceGuid.PcdFdBaseAddress # The base address of the FLASH Device.
++Size          = $(FD_SIZE)|gArmTokenSpaceGuid.PcdFdSize        # The size in bytes of the FLASH Device
++ErasePolarity = 1
++
++# This one is tricky, it must be: BlockSize * NumBlocks = Size
++BlockSize     = 0x1000
++NumBlocks     = $(FD_BLOCKS)
++
++################################################################################
++#
++# Following are lists of FD Region layout which correspond to the locations of different
++# images within the flash device.
++#
++# Regions must be defined in ascending order and may not overlap.
++#
++# A Layout Region start with a eight digit hex offset (leading "0x" required) followed by
++# the pipe "|" character, followed by the size of the region, also in hex with the leading
++# "0x" characters. Like:
++# Offset|Size
++# PcdOffsetCName|PcdSizeCName
++# RegionType <FV, DATA, or FILE>
++#
++################################################################################
++
++0x00000000|$(FD_SIZE)
++gArmTokenSpaceGuid.PcdFvBaseAddress|gArmTokenSpaceGuid.PcdFvSize
++FV = FVMAIN_COMPACT
++
++################################################################################
++#
++# FV Section
++#
++# [FV] section is used to define what components or modules are placed within a flash
++# device file.  This section also defines order the components and modules are positioned
++# within the image.  The [FV] section consists of define statements, set statements and
++# module statements.
++#
++################################################################################
++
++[FV.FvMain]
++FvNameGuid         = CD8D4C84-20AD-4073-8A28-3400FAE05941
++BlockSize          = 0x1000
++NumBlocks          = 0        # This FV gets compressed so make it just big enough
++FvAlignment        = 8        # FV alignment and FV attributes setting.
++ERASE_POLARITY     = 1
++MEMORY_MAPPED      = TRUE
++STICKY_WRITE       = TRUE
++LOCK_CAP           = TRUE
++LOCK_STATUS        = TRUE
++WRITE_DISABLED_CAP = TRUE
++WRITE_ENABLED_CAP  = TRUE
++WRITE_STATUS       = TRUE
++WRITE_LOCK_CAP     = TRUE
++WRITE_LOCK_STATUS  = TRUE
++READ_DISABLED_CAP  = TRUE
++READ_ENABLED_CAP   = TRUE
++READ_STATUS        = TRUE
++READ_LOCK_CAP      = TRUE
++READ_LOCK_STATUS   = TRUE
++
++  !include Include/APRIORI.inc
++  !include Include/DXE.inc
++  !include Include/RAW.inc
++
++  # RAM Manager reads the RAM partition table published by the stock drivers.
++!if $(BLUELINE_VENDOR_HW) == 1
++  INF SiliciumPkg/Drivers/RamManagerDxe/RamManagerDxe.inf
++!endif
++
++  # SmBios
++  INF MdeModulePkg/Universal/SmbiosDxe/SmbiosDxe.inf
++  INF SiliciumPkg/Drivers/SmBiosTableDxe/SmBiosTableDxe.inf
++
++  # UniXNU
++  INF UniXNUPkg/Application/UniXNU/UniXNU.inf
++  INF UniXNUPkg/Driver/UniXNUDxe/UniXNUDxe.inf
++
++  # ACPI: the table protocol only; XNU takes the Apple device tree, and no ACPI tables are installed
++  INF MdeModulePkg/Universal/Acpi/AcpiTableDxe/AcpiTableDxe.inf
++
++  # Device Tree
++  #INF EmbeddedPkg/Drivers/DtPlatformDxe/DtPlatformDxe.inf
++  #FILE FREEFORM = 25462CDA-221F-47DF-AC1D-259CFAA4E326 {
++  #  SECTION RAW = bluelinePkg/FdtBlob/sdm845-google-blueline.dtb
++  #  SECTION UI = "DeviceTreeBlob"
++  #}
++
++  !include QcomPkg/Extra.fdf.inc
++
++[FV.FVMAIN_COMPACT]
++FvAlignment        = 8
++ERASE_POLARITY     = 1
++MEMORY_MAPPED      = TRUE
++STICKY_WRITE       = TRUE
++LOCK_CAP           = TRUE
++LOCK_STATUS        = TRUE
++WRITE_DISABLED_CAP = TRUE
++WRITE_ENABLED_CAP  = TRUE
++WRITE_STATUS       = TRUE
++WRITE_LOCK_CAP     = TRUE
++WRITE_LOCK_STATUS  = TRUE
++READ_DISABLED_CAP  = TRUE
++READ_ENABLED_CAP   = TRUE
++READ_STATUS        = TRUE
++READ_LOCK_CAP      = TRUE
++READ_LOCK_STATUS   = TRUE
++
++  INF SiliciumPkg/Sec/Sec.inf
++
++  FILE FV_IMAGE = 9E21FD93-9C72-4c15-8C4B-E77F1DB2D792 {
++    SECTION GUIDED EE4E5898-3914-4259-9D6E-DC7BD79403CF PROCESSING_REQUIRED = TRUE {
++      SECTION FV_IMAGE = FVMAIN
++    }
++  }
++
++  !include SiliciumPkg/Common.fdf.inc
+diff --git a/Resources/Configs/blueline.toml b/Resources/Configs/blueline.toml
+new file mode 100644
+index 00000000..89afbe54
+--- /dev/null
++++ b/Resources/Configs/blueline.toml
+@@ -0,0 +1,32 @@
++#
++# Boot Shim Configs
++#
++[boot_shim]
++requires_kernel_header = true
++
++#
++# UEFI FD Configs
++#
++[uefi_fd]
++base = 0x9FC00000
++size = 0x300000
++
++#
++# Android Boot Image Kernel Configs
++#
++[boot_image_kernel]
++kernel_compression = "gzip"
++append_dtb         = true
++
++#
++# Android Boot Image Configs
++#
++# The stock Pixel 3 boot image (SP1A.210812.016.C2) uses base 0, kernel 0x8000, ramdisk 0x1000000,
++# tags 0x100 and 4 KiB pages. Header version 1 keeps the device tree appended to the kernel.
++[boot_image]
++header_version = 1
++base           = 0x00000000
++kernel_offset  = 0x00008000
++ramdisk_offset = 0x01000000
++tags_offset    = 0x00000100
++pagesize       = 4096
