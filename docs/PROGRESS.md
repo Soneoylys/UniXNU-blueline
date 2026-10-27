@@ -123,10 +123,14 @@ SPMI arbiter v5 (core 0xC440000, APID map at +0x900, observer 0xE600000 + 0x1000
 Volume up/down = Up/Down, power = Enter. A host test against a simulated v5 arbiter passes
 (`Drivers/BluelineKeyInputDxe/Test/keys_host.c`).
 
+### Run 4 (2026-10-26): `mu-simplefb-menu` with BluelineKeyInputDxe
+
+The menu came up, the keys worked, and nothing crashed. The harmless "Failed to Locate STI Device Path" line still shows.
+The SDM845 SPMI arbiter v5 path and the PM8998 PON/GPIO6 key bits are confirmed on hardware.
+
 ## Open items
 
 - DRAM size (`[payload] dram_size`) and the userdata LBA range: read on the phone.
 - Root device: an XNU driver for the SDM845 UFS host (UFS 2.1, 0x1d84000); NativeUfs is SM8550-specific.
 - Kernel build: macOS (Xcode) or a GitHub macOS runner, as `UniXNU-pocket-max/.github/workflows/build-kernel.yml`.
-- Keys in `mu-simplefb`: an SPMI key driver like sheng's ShengKeyInputDxe (PM8998 PON and RESIN) if that variant is
-  the one that works.
+- Keys in `mu-simplefb`: done (BluelineKeyInputDxe, run 4).
