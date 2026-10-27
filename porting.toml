@@ -7,7 +7,7 @@ schema_version = 1
 [device]
 name = "blueline"
 soc = "SDM845"
-os_profile = "ipados-17.7.11-21H461"
+os_profile = "ipados-18.7.11-22H384"
 summary = "Google Pixel 3: Mu-Silicium firmware with UniXNU boots by fastboot boot to the UniXNU menu with working keys and a payload volume; the XNU kernel is not built yet."
 
 [[area]]
@@ -17,17 +17,17 @@ components = ["ArmDTPlatform", "XnuPrelink"]
 paths = ["board.toml", "feeds.toml", "configs/**", "dts/**", ".github/**", ".gitignore", "local.toml.example"]
 inputs = [
   "SoC: SDM845 (4x Cortex-A55 + 4x Cortex-A75), GICv3 0x17a00000/0x17a60000 stride 0x20000, 19.2 MHz counter, PSCI over SMC, virtual timer PPI 3 (stock boot.img dtb 0).",
-  "Target OS: the unchanged iPad7,1 iPadOS 17.7.11 (21H461) restore image of the OS profile.",
+  "Target OS: the unchanged iPad7,11 iPadOS 18.7.11 (22H384) restore image (iPad 7th generation, the last arm64 non-arm64e iPadOS build), OS profile ipados-18.7.11-22H384 on a UniXNU branch.",
   "Shared SoC layer: UniXNU-sdm845-common (soc.toml, dts/sdm845.dtsi, configs/sdm845.config, drivers/ArmCpu).",
 ]
 configuration = [
-  "board.toml is format 2 and selects soc_source = sdm845 and os_profile = ipados-17.7.11-21H461.",
+  "board.toml is format 2 and selects soc_source = sdm845 and os_profile = ipados-18.7.11-22H384 (moved from ipados-17.7.11-21H461 on 2026-10-27).",
   "dts/blueline.dts includes sdm845.dtsi and enables cpu0 only for the first boot; its memory size is a TODO(device).",
 ]
 procedure = ["./unixnu defconfig blueline_defconfig -D <device>; ./unixnu fetch; ./unixnu status --json; ./unixnu tree"]
-findings = ["Migrated from format 1 (the Pocket Max layout); the format 1 ADT script is replaced by the common generator reading dts/blueline.dts."]
+findings = ["Migrated from format 1 (the Pocket Max layout); the format 1 ADT script is replaced by the common generator reading dts/blueline.dts.", "The ipados-18.7.11-22H384 OS profile is not in upstream UniXNU: it is on the owner's branch ipados-18 (xnu-11417.140.69 with the BCM2837 machine layer restored), and its kernel builds (docs/PROGRESS.md kernel 2)."]
 completion = ["All source pins resolve; every selected component has a record; status shows the intended overrides and patch order."]
-limits = ["DRAM size and userdata geometry are not measured; the payload step stops until they are."]
+limits = ["DRAM size and userdata geometry are not measured; the payload step stops until they are.", "The 22H384 payload text fixups, trust cache pins and OS volume UUID are not set yet."]
 next_action = ["Resolve on the macOS build host and record the status output."]
 evidence = [
   { kind = "source", reference = "board.toml", result = "Format 2 board file on UniXNU-sdm845-common; unixnu status on the build Mac resolves the ARM64, sdm845, OS and device layers with ArmCpu from the SoC repository." },

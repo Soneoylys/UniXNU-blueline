@@ -2,7 +2,7 @@
 #
 # Format 2: the ARM64, SoC, OS and device layers merge, and this file only states what the board changes. The IPSW
 # identity, prelink roots, slide, early security initializer, trust caches and the Apple device-tree properties come
-# from the selected OS profile (profiles/os/ipados-17.7.11-21H461 of UniXNU); the GIC, timer, PSCI and CPU topology
+# from the selected OS profile (profiles/os/ipados-18.7.11-22H384, a UniXNU branch); the GIC, timer, PSCI and CPU topology
 # come from the sdm845 SoC repository (UniXNU-sdm845-common, dts/sdm845.dtsi) and dts/blueline.dts.
 #
 # Boot route: "fastboot boot" of an Android boot image whose kernel is Mu-Silicium's BootShim plus the blueline
@@ -16,7 +16,7 @@ schema_version = 2
 name = "blueline"
 soc = "SDM845"
 soc_source = "sdm845"
-os_profile = "ipados-17.7.11-21H461"
+os_profile = "ipados-18.7.11-22H384"
 description = "Google Pixel 3"
 kit = "blueline"
 
@@ -30,7 +30,8 @@ include = ["ArmDTPlatform", "ArmCpu", "SoftwareAES", "XnuPrelink", "DarwinBoot"]
 [kernel]
 defconfig = "blueline_defconfig"
 config_fragments = ["arch:configs/common.config", "soc:configs/sdm845.config", "os:configs/ipados.config"]
-patch_series = ["arch:patches/xnu/series", "soc:patches/xnu/series", "os:patches/xnu/series", "device:patches/xnu/series"]
+# patch_series comes from the OS profile: its base.series (BCM2837 restored, the arm64 series rebased onto
+# xnu-11417) replaces arch:patches/xnu/series.
 
 [device_tree]
 source = "device:dts/blueline.dts"
@@ -113,8 +114,8 @@ kernel_args = [
 
 [payload.adt]
 chip_id = "207"
-# The OS volume of the 21H461 image set (as sheng and sirius).
-root_match_volume_uuid = "04769D26-2CA0-4825-B443-E2E5F88300F2"
+# TODO: the OS volume UUID of the 22H384 image set. 04769D26-2CA0-4825-B443-E2E5F88300F2 was 21H461's.
+# root_match_volume_uuid = ""
 owned_memory_size = "0x80000000"      # 2 GiB DarwinBoot window of the 4 GB part
 packed_data_ramdisk = true
 

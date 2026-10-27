@@ -154,6 +154,48 @@ with 32 jobs.
 
 Not run on the phone: the payload needs the measured DRAM size (dts/blueline.dts, `[payload] dram_size`).
 
+## Target OS: iPadOS 18.7.11 (2026-10-27)
+
+The owner moved the target OS to `iPad_10.2_18.7.11_22H384_Restore.ipsw` (iPad 7th generation, iPad7,11 J171AP /
+iPad7,12 J172AP, chip 0x8010, still signed), the last iPadOS build for an arm64 (not arm64e) device. Its kernelcache:
+`xnu-11417.140.69.706.66~1/RELEASE_ARM64_T8010`, Darwin 24.6.0, cpusubtype 0, classic prelinked layout, 229 kexts,
+decompressed sha256 `adc2b3e3d2b0a87e6ebb71f5f5c2dbd183872a5e3c2a4636e331a0cf1f5df5e9`.
+
+Upstream UniXNU has only `ipados-17.7.11-21H461` (xnu-10063.141.1). The new OS profile `ipados-18.7.11-22H384` lives on
+branch `ipados-18` of the build Mac's UniXNU checkout (`~/blueline/UniXNU`); the rebase tools and a bundle of the
+rebased xnu branch are in `~/blueline/ios18-tools`.
+
+- Source: public `xnu-11417.140.69` (the base of the shipped kernel). Apple removed the BCM2837 machine layer after
+  10063, and its public tree has only Apple Silicon Mac machine configs. `restore-bcm2837-machine.patch` brings it back
+  (MASTER.arm64.bcm2837 with the 11417 scheduler options, BCM2837.h, board_config.h, MakeInc.def, the `#if BCM2837`
+  paths; not the Pi 3 mini-UART, as 11417's serial layer is devicetree driven).
+- The 61 patches of the arm64, SoC and OS series, replayed on 10063 and cherry-picked: 51 apply unchanged (both SoC
+  patches among them), 8 were rebased (kernel-sdk-root, disabled-deferred-reclaim, native-4k-signature-hash-cache,
+  native-text-fixup, non-apple-cache-monitor, offline-owner-systemos-mount, zzz-boot-progress, plus the restore), 2 are
+  no longer needed (non-apple-pmap-field, published-freezer-condition: fixed by Apple).
+- Prelink: all 31 roots exist; the AMFI early security initializer `_initializeAppleMobileFileIntegrity()` is at
+  `0xfffffff005a79dc8` (found from its `__PRETTY_FUNCTION__` string, the same function as 21H461's address).
+- New in 11417: `arm_init()` panics unless `/chosen` has `dram-base` and `dram-size`.
+- Build fixes past the rebase (all Apple's own `!CONFIG_DEFERRED_RECLAIM` stubs, a header that common code now
+  includes, `vm_map_protect` gone private, and UniXNU's command-line `vm_unix.o_CFLAGS_ADD` replacing 11417's
+  per-file `-DVM_UNSAFE_TYPES`): listed in the profile's README.
+
+### Kernel 2 (2026-10-27): iPadOS 18.7.11, Intel build Mac
+
+UniXNU branch `ipados-18` at `6c6aab3` (on upstream `f85b5a6`), UniXNU-blueline with board.toml on the new profile,
+UniXNU-sdm845-common `d2a5f3b7`; same Mac and toolchain as kernel 1. Sixth attempt; the build itself takes about
+2.5 minutes.
+
+- `kernel.macho` 55291904 bytes, sha256 `bf8e6436533305c563951317fd2d0080e880dfbd136752934e69266b3bfe5026`, Darwin 24.6.0
+  DEVELOPMENT_ARM64_BCM2837, prelinked on the 22H384 kernelcache. Copied to `build/kernel/ipados-18/` (ignored).
+- Prelink report: the same class as kernel 1 (`loadable=false`, `runtime_qualified=false`); 30 roots with code and
+  IOHIDEventDriver codeless, AMFI early initializer recorded; ArmCpu from the SoC repository (`armcpu-timer-intid`
+  is in the image).
+- Not run on the phone: besides the DRAM size, the payload needs this profile's text fixups, trust caches and OS volume
+  UUID, and the boot path must give `/chosen` `dram-base`/`dram-size`.
+- Not done: payload text fixups and trust cache pins for 22H384, the 22H384 OS volume UUID
+  (`[payload.adt] root_match_volume_uuid`), the J171 `product-id`.
+
 ## Open items
 
 - DRAM size (`[payload] dram_size`) and the userdata LBA range: read on the phone.
