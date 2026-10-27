@@ -128,6 +128,13 @@ Volume up/down = Up/Down, power = Enter. A host test against a simulated v5 arbi
 The menu came up, the keys worked, and nothing crashed. The harmless "Failed to Locate STI Device Path" line still shows.
 The SDM845 SPMI arbiter v5 path and the PM8998 PON/GPIO6 key bits are confirmed on hardware.
 
+### Run 5 (2026-10-26): `stock-vendor-menu`, crashed
+
+The user reported only that it crashed; no log lines were captured. Both stock variants (`BLUELINE_VENDOR_HW = 1`)
+now fail on the phone, so `mu-simplefb` is the base going forward. The stock drivers are only worth debugging if a later
+step needs one of them (UFS from UEFI, or clocks/power that XNU's drivers find off); a photo of the last log lines
+comes first then.
+
 ## Open items
 
 - DRAM size (`[payload] dram_size`) and the userdata LBA range: read on the phone.
