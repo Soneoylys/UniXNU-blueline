@@ -31,7 +31,7 @@ SP1A.210812.016.C2), extracted with `scripts/extract-blueline-xbl.py`, and the m
 | XBL drivers and `uefiplat.cfg` extracted (80 modules, all CRCs and hashes recorded) | done |
 | `bluelinePkg` firmware volume builds on Windows (three variants) | done |
 | Boot images for `fastboot boot` (header v1 appended DTB, and header v2 dtb section) | done, **not run on a phone** |
-| UniXNU menu on the phone | next: needs the phone |
+| UniXNU menu on the phone | **works** (run 2); next: payload volume with a no-timeout menu |
 | Payload, DarwinBoot, XNU kernel entry | after the menu; the kernel build needs macOS (as every UniXNU board) |
 | Root device | SDM845 UFS host has no XNU driver yet (NativeUfs is SM8550); userdata layout needs the phone |
 
@@ -47,6 +47,7 @@ SP1A.210812.016.C2), extracted with `scripts/extract-blueline-xbl.py`, and the m
 | `scripts/extract-blueline-xbl.py` | XBL ELF → firmware volume → drivers, depex and raw files in the Device-Binaries layout |
 | `scripts/import-blueline-uefi.py` | Stage the drivers and the stock DTB into the firmware checkout |
 | `scripts/gen-blueline-dxe-inc.py` | bluelinePkg's APRIORI/DXE lists from polaris's (SDM845), with Pixel 3 module names |
+| `scripts/build-blueline-payload.py` | UniXNU payload volume (boot image ramdisk) without mtools: a no-timeout menu config, optional extra tree |
 | `scripts/package-blueline-boot.py` | Boot image for `fastboot boot`, verified by unpacking |
 | `scripts/make-blueline-adt.py` | Apple device tree for the first XNU boot (SDM845 GIC, Kryo 385 cores, UFS node) |
 | `scripts/check-blueline.py` | Board preflight: refuses copied sheng/Pocket Max values and unpinned inputs |

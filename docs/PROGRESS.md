@@ -90,6 +90,22 @@ Fix: BootShim.S takes an optional `TEXT_OFFSET` (default FD_BASE, unchanged for 
 independent, so only the bootloader reads the field. All six images were repacked; decompressing each and
 replaying those checks passes (text_offset 0x80000, image_size 0x3000C0 = decompressed size).
 
+### Run 2 (2026-10-26): text_offset 0x80000, the UniXNU menu
+
+The phone showed the UniXNU menu (ABL accepted the header v1 image; BootShim, SEC, DXE, the display and UniXNU all
+ran), then returned to the firmware, which reported that nothing was found and powered off. The buttons worked in
+the menu.
+
+That is UniXNU's built-in configuration, used when no payload volume exists: its default entry is "Return to
+firmware" after a 10 s timeout (Library/UniXNULib/Config.c mBuiltinConfig); the firmware's boot manager then finds
+no boot option.
+
+Next images (`blueline-unixnu-<variant>-menu.img`): the same firmware with a 16 MiB payload volume as the ramdisk
+(`scripts/build-blueline-payload.py`, FAT16 via pyfatfs as upstream mk-gpt-disk.py does without mtools). It holds
+only `EFI/UniXNU/unixnu.toml`: the built-in entries with `timeout = -1`, so the menu waits for a button. This also
+tests UniXNURamDiskDxe and the payload path (ABL's /chosen linux,initrd-start/end). `mu-simplefb` has no
+ButtonsDxe: with no input device UniXNU still counts down `fallback_timeout`.
+
 ## Open items
 
 - DRAM size (`[payload] dram_size`) and the userdata LBA range: read on the phone.
