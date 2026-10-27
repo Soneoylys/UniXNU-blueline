@@ -1,36 +1,43 @@
-# Board description of the Google Pixel 3 (blueline, SDM845 / Snapdragon 845), read by the unixnu build driver.
+# Board description of the Google Pixel 3 (blueline, SDM845), read by the unixnu build driver.
+#
+# Format 2: the ARM64, SoC, OS and device layers merge, and this file only states what the board changes. The IPSW
+# identity, prelink roots, slide, early security initializer, trust caches and the Apple device-tree properties come
+# from the selected OS profile (profiles/os/ipados-17.7.11-21H461 of UniXNU); the GIC, timer, PSCI and CPU topology
+# come from the sdm845 SoC repository (UniXNU-sdm845-common, dts/sdm845.dtsi) and dts/blueline.dts.
 #
 # Boot route: "fastboot boot" of an Android boot image whose kernel is Mu-Silicium's BootShim plus the blueline
-# firmware volume (uefi-blueline, Platforms/Google/bluelinePkg). The firmware's drivers are the stock Pixel 3 XBL
-# DXEs of bootloader b1c1-0.4-7617406 (scripts/extract-blueline-xbl.py); nothing is flashed.
+# firmware volume (uefi-blueline, Platforms/Google/bluelinePkg). Nothing is flashed.
 #
 # Values marked TODO(device) need a measurement on the phone; they have no default on purpose.
+
+schema_version = 2
 
 [board]
 name = "blueline"
 soc = "SDM845"
+soc_source = "sdm845"
+os_profile = "ipados-17.7.11-21H461"
 description = "Google Pixel 3"
-kit = "sheng"                      # sheng's package, unchanged, appears as kits/sheng (as for UniXNU-pocket-max)
+kit = "blueline"
 
-# The same target image as sheng and the Pocket Max: iPad7,1 iPadOS 17.7.11 (XNU 10063.141.1, 4 KiB pages).
-# iPad7,1 has 4 GB of RAM, as the Pixel 3.
-[ipsw]
-url = "https://updates.cdn-apple.com/2025SpringFCS/fullrestores/122-77166/DCA6CFE8-90E9-4B92-880D-3DE171798E40/iPad_Pro_HFR_17.7.11_21H461_Restore.ipsw"
-product = "iPad7,1"
-version = "17.7.11"
-build = "21H461"
-device_class = "j120ap"
-chip_id = 0x8011
-board_id = 12
-fetch = ["KernelCache", "DeviceTree", "StaticTrustCache", "Cryptex1,SystemTrustCache"]
+# The ARM64 profile's set plus DarwinBoot. ArmCpu resolves to drivers/ArmCpu of UniXNU-sdm845-common (the virtual
+# timer INTID, armcpu-timer-intid below).
+[components]
+include = ["ArmDTPlatform", "ArmCpu", "SoftwareAES", "XnuPrelink", "DarwinBoot"]
 
-[ipsw.sha256]
-"044-76040-038.dmg" = "3f99b859c9728379110b66657c7b15285bcb1925ad8b5726542e2cdcf8b1028d"
-"044-76034-038.dmg" = "b4908cde41d23e6bc05e6af51a2c9eeb00cf0f863a6a18b1600c96a3fd70414f"
+# The kernel builds on macOS + Xcode. config_fragments apply in order, then the defconfig overrides them. The archive
+# plan is the ARM64 profile's (no board archives yet).
+[kernel]
+defconfig = "blueline_defconfig"
+config_fragments = ["arch:configs/common.config", "soc:configs/sdm845.config", "os:configs/ipados.config"]
+patch_series = ["arch:patches/xnu/series", "soc:patches/xnu/series", "os:patches/xnu/series", "device:patches/xnu/series"]
+
+[device_tree]
+source = "device:dts/blueline.dts"
+include_dirs = ["soc:dts"]
 
 # TODO(device): the GPT entry "userdata" of UFS LUN 0 (4096-byte blocks). The Pixel 3 ships with 64 or 128 GB, so
-# the range is read from the phone (fastboot getvar partition-size:userdata, or the UEFI shell). Writing it
-# replaces Android's userdata; that needs the owner's decision first.
+# the range is read from the phone. Writing it replaces Android's userdata; that needs the owner's decision first.
 # [userdata]
 # first_lba = 0x0
 # last_lba = 0x0
@@ -39,61 +46,6 @@ fetch = ["KernelCache", "DeviceTree", "StaticTrustCache", "Cryptex1,SystemTrustC
 #   { name = "OS", component = "OS" },
 #   { name = "SystemOS", component = "Cryptex1,SystemOS" },
 # ]
-
-[kernel]
-defconfig = "blueline_defconfig"
-# sheng's archive builders without its SM8550 storage and display drivers (as the Pocket Max's first pass).
-archives = [
-  "build-corecrypto-14.py",
-  "build-corecrypto-14.py --namespace",
-  "build-arm-driver.py ArmDTPlatform",
-  "build-arm-driver.py ArmCpu",
-  "build-arm-driver.py NativeAES",
-  "build-native-aes-bindings.py",
-  "build-mockfs-fixture.py",
-  "build-libpthread-kernel.py",
-]
-
-# The prelink depends on the target kernelcache only, so it matches sheng's and the Pocket Max's.
-[kernel.prelink]
-tool = "kits/NativePrelink/emit_prelink.py"
-kernel = "build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/mach.development.bcm2837.unstripped.noctf"
-kernelcache_sha256 = "f18b4df865405f2a287b84977d7aca745e056d656d9fc9df1662970ce2969de7"
-slide = "-0x1000000"
-early_security_init = "com.apple.driver.AppleMobileFileIntegrity=0xfffffff005ab4ae0"
-roots = [
-  "com.apple.AppleFSCompression.AppleFSCompressionTypeZlib",
-  "com.apple.driver.AppleARMPlatform",
-  "com.apple.driver.AppleARMWatchdogTimer",
-  "com.apple.driver.AppleAudioClockLibs",
-  "com.apple.driver.AppleEffaceableStorage",
-  "com.apple.driver.AppleIISController",
-  "com.apple.driver.AppleM2ScalerCSCDriver",
-  "com.apple.driver.AppleMobileFileIntegrity",
-  "com.apple.driver.ApplePMGR",
-  "com.apple.driver.IODARTFamily",
-  "com.apple.filesystems.apfs",
-  "com.apple.iokit.CoreAnalyticsFamily",
-  "com.apple.iokit.IOAVFamily",
-  "com.apple.iokit.IOAudio2Family",
-  "com.apple.iokit.IOCECFamily",
-  "com.apple.iokit.IOCryptoAcceleratorFamily",
-  "com.apple.iokit.IOGPUFamily",
-  "com.apple.iokit.IOHDCPFamily",
-  "com.apple.iokit.IOMobileGraphicsFamily",
-  "com.apple.iokit.IOReportFamily",
-  "com.apple.iokit.IOSlowAdaptiveClockingFamily",
-  "com.apple.iokit.IOStorageFamily",
-  "com.apple.iokit.IOSurface",
-  "com.apple.kec.Libm",
-  "com.apple.kec.corecrypto",
-  "com.apple.kext.AppleMatch",
-  "com.apple.kext.CoreTrust",
-  "com.apple.security.AppleImage4",
-  "com.apple.security.sandbox",
-  "com.apple.iokit.IOHIDFamily",
-  "com.apple.iokit.IOHIDEventDriver",
-]
 
 # The firmware: uefi-blueline is a Mu-Silicium checkout with Platforms/Google/bluelinePkg. On Windows,
 # tools/windows/build-firmware.ps1 runs the same EDK II build (this table is the unixnu driver's view of it).
@@ -119,14 +71,17 @@ packages = [
   "{edk2}",
 ]
 
+# The Mu-only firmware is the one that works on the phone (docs/PROGRESS.md runs 3-5): Mu drivers, SimpleFbDxe on
+# ABL's framebuffer, BluelineBootMemoryDxe and BluelineKeyInputDxe. Both stock-driver variants crash.
 [firmware.defines]
 ENABLE_SECUREBOOT = "0"
-BLUELINE_VENDOR_HW = "1"           # 0: Mu drivers only (tools/windows/build-firmware.ps1 -NoVendor; docs/PROGRESS.md)
-USE_CUSTOM_DISPLAY_DRIVER = "1"    # 0: SimpleFbDxe on ABL's framebuffer at 0x9D400000 (see docs/PROGRESS.md)
+BLUELINE_VENDOR_HW = "0"
+USE_CUSTOM_DISPLAY_DRIVER = "0"
 
 # Header v1, kernel 0x8000, ramdisk 0x1000000, tags 0x100, 4 KiB pages: the stock SP1A.210812.016.C2 boot image's
 # offsets (Resources/Configs/blueline.toml). The appended DTB is the stock SDM845 v2.1 base tree (msm-id 0x141,
 # 0x20001; board-id 0/0); ABL applies its own dtbo overlay (B1 DVT1.1, board-id 0x21505) and keeps the splash.
+# ABL requires text_offset 0x80000 in the kernel header: use scripts/package-blueline-boot.py (docs/PROGRESS.md run 1).
 [bootimg.image]
 header_version = 1
 base = 0x0
@@ -137,45 +92,45 @@ pagesize = 4096
 
 # The payload volume, the boot image ramdisk: UniXNURamDiskDxe publishes it as Block I/O. UniXNU, UniXNUDxe and
 # DarwinBoot are in the firmware volume (bluelinePkg [Components]), as sheng's.
+# TODO(device): dram_size, the usable DRAM from 0x80000000; it must equal the memory node of dts/blueline.dts.
 [payload]
 volume = "BLUELINE"
 size_mib = 192
 loader = "firmware"
-skip_setup_tool = "scripts/seed-data-skip-setup.py"
-title = "Pixel 3 first boot: 4K XNU to console, one CPU"
-dram_size = "TODO(device)"          # RAM from 0x80000000 as the blueline UEFI memory map reports it (4 GB part)
+title = "Pixel 3 first boot: XNU to console, one CPU"
 panic_screen = false
-trust_cache_sha256 = [
-  "7416ca4f8377146626bb284e2133c76bee6cb4e3ee0af5d648b186235a7323a7",
-  "8900d6a93d7a59ce1a872a5c081e559f4240a218f97e12d44d22dda46644d68f",
-]
 kernel_args = [
   "-v",
   "serial=3",
   "debug=0x14e",
-  "boot-progress=2",
   "kt_fixed_zones=120",
   "-no_slto_panic",
   "ml-timeout-lock-panic-scale=40",
+  "cpus=1",                           # one core first, as polaris (dts/blueline.dts enables cpu0 only)
+  "armcpu-self-ipi=1",                # as polaris and sirius
+  "armcpu-timer-intid=19",            # SDM845 EL1 virtual timer is PPI 3 (INTID 19), not PPI 27 (dts/sdm845.dtsi)
 ]
 
 [payload.adt]
-tool = "scripts/make-blueline-adt.py"
-cpu_regs = "0"                       # boot CPU only for the first boot; SDM845 has 0x000..0x700 (sdm845.dtsi)
-root_match_volume_uuid = "04769D26-2CA0-4825-B443-E2E5F88300F2"   # OS volume of 21H461 (as sheng)
-owned_memory_size = "0x80000000"     # 2 GiB DarwinBoot window: the Pixel 3 has 4 GB, sheng asks for 4.75 GiB
-chip_id = "207"                      # as sheng
+chip_id = "207"
+# The OS volume of the 21H461 image set (as sheng and sirius).
+root_match_volume_uuid = "04769D26-2CA0-4825-B443-E2E5F88300F2"
+owned_memory_size = "0x80000000"      # 2 GiB DarwinBoot window of the 4 GB part
 packed_data_ramdisk = true
-unique_chip_id = "0x424c4e3300000001"   # synthetic platform seed ("BLN3")
-psci_method = "smc"
-ipad_identity = true
 
-[device]
-# Board facts the drivers will need, with their source. Not read by the build driver.
-firmware = "bootloader-blueline-b1c1-0.4-7617406 (factory image blueline-sp1a.210812.016.c2), XBL UEFI FD at 0x9fc00000"
-msm_id = [0x141, 0x20001]            # stock boot.img dtb 0 (SDM845 v2.1)
-board_id = [0x21505, 0]              # stock dtbo.img overlay 8, "Google Inc. MSM sdm845 B1 DVT1.1"
-panel = { native = [1080, 2160], framebuffer = 0x9d400000, framebuffer_size = 0x2400000 }   # cont_splash_region
-ufs = { base = 0x1d84000, compatible = "qcom,sdm845-ufshc" }
-gic = { dist = 0x17a00000, redist = 0x17a60000, redist_size = 0x100000 }
-cpus = { mpidr_aff1 = [0x000, 0x100, 0x200, 0x300, 0x400, 0x500, 0x600, 0x700], psci = "smc" }
+# The Apple device-tree properties the OS profile does not already supply.
+[adt.product.string]
+model = "google,blueline"
+
+[adt.defaults.u32]
+sleep-disabled = 1                    # no suspend/resume on this board yet
+
+[adt.buttons.string]
+compatible = "buttons"
+device_type = "buttons"
+
+[adt.buttons.strings]
+button-names = ["hold", "voldown", "volup"]
+
+[adt.buttons.u32]
+home-button-type = 2                  # no Home button

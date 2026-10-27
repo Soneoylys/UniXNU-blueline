@@ -1,0 +1,8 @@
+# Copy to local.toml (ignored by Git) for machine-specific overrides. The UniXNU command line (--local,
+# --local-module KIND:NAME=PATH) takes precedence over this file. Relative paths resolve from this file.
+#
+# Example: build against a local checkout of the SoC repository instead of the pinned commit:
+#   [[source]]
+#   kind = "soc"
+#   name = "sdm845"
+#   local = "../UniXNU-sdm845-common"

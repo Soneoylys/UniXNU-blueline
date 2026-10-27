@@ -3,9 +3,10 @@
 
     check-blueline.py [board.toml]
 
-The board follows sheng and the Pocket Max (sheng's package is kits/sheng, unchanged), so the likely mistakes are
-copied hardware values: sheng's SM8550 or the Pocket Max's SM8250 addresses, their kernel arguments for that
-hardware, a DRAM size or userdata range that was not measured, or firmware inputs that are not the pinned Pixel 3 files.
+The board started from sheng and the Pocket Max, so the likely mistakes are copied hardware values: sheng's SM8550
+or the Pocket Max's SM8250 addresses, their kernel arguments for that hardware, a DRAM size or userdata range that was
+not measured, or firmware inputs that are not the pinned Pixel 3 files. The CPU, GIC and timer values live in
+dts/blueline.dts and the sdm845 SoC repository (format 2), which the common ADT generator reads.
 """
 import hashlib
 import json
@@ -21,7 +22,6 @@ FOREIGN_VALUES = ('0x17100000', '0x17180000', 'sm8550', 'sm8250', '0x2f3840', '0
 FOREIGN_ARGUMENTS = ('native-ufs-root', 'sheng-touch', 'sheng-gpu-power', 'sheng-gpu-metal', 'sheng-gpu-perf', 'sheng-gpu-addon',
                      'sheng-fb-gpu', 'sheng-data-persist', 'sheng-banner', 'armcpu-spi-ipi', 'sheng-cpufreq', 'pm-touch',
                      'pm-landscape', 'pm-sd-dma', 'pm-gpu', 'pm-buttons', 'sheng-smp')
-SDM845_CPUS = {0x000, 0x100, 0x200, 0x300, 0x400, 0x500, 0x600, 0x700}
 FIRMWARE = ROOT / '.cache' / 'firmware'
 PINNED = {
     'bootloader-blueline-b1c1-0.4-7617406.img': '85a788ecb531b4d7351e7c867159c29bd40d1ad849425040e18c59cfb90d5dc6',
@@ -45,7 +45,7 @@ def problems(board, text):
     if 'userdata' in board and board['userdata'].get('lba_bytes') != 4096:
         found.append('[userdata] LBAs are 4096-byte UFS blocks')
     payload = board.get('payload', {})
-    dram = str(payload.get('dram_size', ''))
+    dram = str(payload.get('dram_size', 'TODO'))
     if not dram.startswith('TODO'):
         try:
             value = int(dram, 0)
@@ -57,17 +57,13 @@ def problems(board, text):
         if argument.split('=', 1)[0] in FOREIGN_ARGUMENTS:
             found.append(f'kernel argument {argument} drives sheng or Pocket Max hardware')
     adt = payload.get('adt', {})
-    try:
-        regs = [int(v, 0) for v in str(adt.get('cpu_regs', '0')).split(',')]
-        if regs[0] != 0 or not set(regs) <= SDM845_CPUS:
-            found.append(f'[payload.adt] cpu_regs {adt.get("cpu_regs")} are not SDM845 cores 0x000..0x700, boot CPU first')
-    except ValueError:
-        found.append('[payload.adt] cpu_regs are not integers')
     owned = int(str(adt.get('owned_memory_size', '0')), 0)
     if owned > 0xC0000000:
         found.append(f'[payload.adt] owned_memory_size {owned:#x} leaves too little of the 4 GB for the firmware and carve-outs')
-    if adt.get('tool') != 'scripts/make-blueline-adt.py':
-        found.append('[payload.adt] tool must be scripts/make-blueline-adt.py')
+    if board.get('schema_version') != 2 or board.get('board', {}).get('soc_source') != 'sdm845':
+        found.append('board.toml must be format 2 (schema_version = 2) with soc_source = "sdm845"')
+    if 'armcpu-timer-intid=19' not in payload.get('kernel_args', []):
+        found.append('kernel_args must pass armcpu-timer-intid=19 (SDM845 virtual timer, PPI 3)')
     for archive in board.get('kernel', {}).get('archives', []):
         if re.search(r'NativeUfs|NativeAdreno|NativeSdhci|sheng', archive):
             found.append(f'kernel archive "{archive}" programs sheng or Pocket Max hardware')

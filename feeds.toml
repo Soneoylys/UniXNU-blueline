@@ -1,0 +1,9 @@
+# Extra sources of the blueline port. UniXNU components resolve from the component catalog; this file pins the
+# shared SoC layer that board.toml selects as soc_source. local.toml (ignored) can point it at a local checkout
+# while developing (see local.toml.example).
+
+[[source]]
+name = "sdm845"
+kind = "soc"
+git = "https://github.com/Soneoylys/UniXNU-sdm845-common"
+commit = "d2a5f3b7907af94d2f6652f212285d7a9caacde6"

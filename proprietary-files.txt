@@ -1,0 +1,9 @@
+# Required firmware inputs: relative path | source | SHA-256 | consumer
+# Paths are under .cache/firmware (ignored). scripts/fetch-blueline-factory.py fetches the first three from Google's
+# factory image blueline-sp1a.210812.016.c2-factory-fa981d87.zip (dl.google.com) by HTTP range requests;
+# scripts/unpack-fbpk.py unpacks the bootloader image.
+bootloader-blueline-b1c1-0.4-7617406.img | factory zip | 85a788ecb531b4d7351e7c867159c29bd40d1ad849425040e18c59cfb90d5dc6 | scripts/unpack-fbpk.py
+boot.img | factory zip, image-blueline-sp1a.210812.016.c2.zip | 5c1ce19e814e2f198baa877a7351306079272fe67e13404e31f3bab213bb506e | stock DTB (scripts/import-blueline-uefi.py)
+dtbo.img | factory zip, image-blueline-sp1a.210812.016.c2.zip | ff7bd6daa08351a3c72992ded9a45d6f50f349d30dc68b1d0cd2eb426f8ab42d | board-id and overlay facts
+bootloader/xbl.img | bootloader image (FBPK entry) | b9bb2fc40b1451282618b840736f6e4e97f3fbd6433b0f8c31c171e53e7527c1 | scripts/extract-blueline-xbl.py (stock DXEs, uefiplat.cfg)
+bootloader/abl.img | bootloader image (FBPK entry) | 43188c1a6ca0e260d7d315ee2f9a0cefc78fd4a1577f2eb53467b362908494fb | ABL boot-image checks (docs/PROGRESS.md run 1)

@@ -1,0 +1,37 @@
+/dts-v1/;
+// SPDX-License-Identifier: BSD-2-Clause-Patent
+/*
+ * Google Pixel 3 (blueline), Qualcomm SDM845 - board hardware description.
+ *
+ * UniXNU compiles this tree and derives the Apple device tree (kernel.macho.adt) from it:
+ *   - the memory node becomes /chosen/dram-base and /chosen/dram-size, and must match
+ *     [payload] dram_size of board.toml
+ *   - the enabled /cpus children become the ADT /cpus (boot CPU first)
+ *   - each node carrying "unixnu,adt-name" is exported under the ADT /arm-io window
+ * The CPUs, PSCI and the GIC come from sdm845.dtsi (UniXNU-sdm845-common).
+ */
+
+/include/ "sdm845.dtsi"
+
+/ {
+	model = "Google Pixel 3";
+	compatible = "google,blueline", "qcom,sdm845";
+
+	/*
+	 * TODO(device): the usable DRAM of the 4 GB part. The stock DTB leaves /memory at 0 for ABL to fill, and the
+	 * blueline UEFI memory map is not measured yet. Fill the size from the phone, together with [payload] dram_size.
+	 */
+	memory@80000000 {
+		device_type = "memory";
+		reg = <0x0 0x80000000 0x0 0x0>;
+	};
+};
+
+/* First boot: the boot CPU only (cpus=1), as polaris. */
+&cpu1 { status = "disabled"; };
+&cpu2 { status = "disabled"; };
+&cpu3 { status = "disabled"; };
+&cpu4 { status = "disabled"; };
+&cpu5 { status = "disabled"; };
+&cpu6 { status = "disabled"; };
+&cpu7 { status = "disabled"; };

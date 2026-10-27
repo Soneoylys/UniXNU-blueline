@@ -1,0 +1,5 @@
+# Board XNU patches, one path per line in application order (patches/xnu/ of this repository).
+#
+# blueline changes nothing below the SoC and OS profiles yet: the kernel behaviour it needs lives in the ARM64 and
+# OS series of UniXNU and in UniXNU-sdm845-common (its series and drivers/ArmCpu). A board change goes here when it
+# must be a patch; follow https://unixnu.com/xnu/source-and-patches#add-a-patch to export and order it.

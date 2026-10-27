@@ -7,3 +7,7 @@ HANDOFF.md
 /refs/
 __pycache__/
 *.pyc
+# Format 2: machine-specific overrides and unixnu output
+/local.toml
+/out/
+.DS_Store
