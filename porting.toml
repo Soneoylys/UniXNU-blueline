@@ -190,10 +190,11 @@ configuration = ["The ARM64 profile's archive plan (SoftwareAES and its bindings
 procedure = ["./unixnu build kernel on the macOS host, then payload and the boot image."]
 findings = ["The payload volume path works on the phone with a menu-only config (run 3)."]
 completion = ["Kernel and prelink succeed, payload contains all declared inputs, and the boot image matches the bootloader format and size limit."]
-limits = ["No kernel built yet."]
-next_action = ["Build the kernel on the macOS host."]
+limits = ["The payload step waits for the measured DRAM size."]
+next_action = ["Measure DRAM, then ./unixnu payload and the boot image."]
 evidence = [
   { kind = "source", reference = "scripts/build-blueline-payload.py", result = "Payload volume builder used for runs 3-5." },
+  { kind = "host", reference = "docs/PROGRESS.md", command = "./unixnu build kernel -D ../UniXNU-blueline", revision = "d799c7aaa33aef9f9a5ce077305d36e514daca68", result = "Kernel and prelink succeed on the Intel build Mac (Xcode 26.6): kernel.macho sha256 eabccbc2..., experimental candidate (loadable=false, runtime unqualified)." },
 ]
 
 [[area]]

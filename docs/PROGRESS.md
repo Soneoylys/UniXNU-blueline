@@ -135,6 +135,25 @@ now fail on the phone, so `mu-simplefb` is the base going forward. The stock dri
 step needs one of them (UFS from UEFI, or clocks/power that XNU's drivers find off); a photo of the last log lines
 comes first then.
 
+## Kernel builds
+
+### Kernel 1 (2026-10-26): format 2, Intel build Mac
+
+`./unixnu build kernel -D ../UniXNU-blueline` on UniXNU `f85b5a6` (upstream), UniXNU-blueline `d799c7a`, UniXNU-sdm845-common
+`d2a5f3b7`; macOS 26.7.1 (x86_64), Xcode 26.6, iPhoneOS 26.5 SDK, MacPorts LLVM and ld.lld 19.1.7. Six and a half minutes
+with 32 jobs.
+
+- `kernel.macho` 51879936 bytes, sha256 `eabccbc2ef6038389e0a264f13f59fb95e16d2354d8bc580071a7cdfb6af7d05`, Darwin 23.6.0
+  DEVELOPMENT_ARM64_BCM2837, prelinked on the 21H461 kernelcache. The prelink report calls it an experimental candidate
+  (`loadable=false`, `runtime_qualified=false`), as the fajita kernel that reached BSD init on the Mi 8.
+- ArmCpu comes from UniXNU-sdm845-common (`armcpu-timer-intid` is in the image).
+- The first-pass link error (`_mockfs_mountroot` undefined, `logs/kernel-bootstrap.log`) is the deliberate bootstrap
+  pass that only collects compile records (scripts/unixnu/kernel.py).
+- First attempt failed because the SoC patches had CRLF line endings (copied from a Windows checkout); fixed in the SoC
+  repository.
+
+Not run on the phone: the payload needs the measured DRAM size (dts/blueline.dts, `[payload] dram_size`).
+
 ## Open items
 
 - DRAM size (`[payload] dram_size`) and the userdata LBA range: read on the phone.
