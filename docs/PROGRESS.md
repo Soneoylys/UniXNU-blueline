@@ -106,6 +106,23 @@ only `EFI/UniXNU/unixnu.toml`: the built-in entries with `timeout = -1`, so the 
 tests UniXNURamDiskDxe and the payload path (ABL's /chosen linux,initrd-start/end). `mu-simplefb` has no
 ButtonsDxe: with no input device UniXNU still counts down `fallback_timeout`.
 
+### Run 3 (2026-10-26): menu payload
+
+- `mu-simplefb-menu`: the menu came up (the payload volume was found: the countdown was gone) but the volume keys did
+  nothing. A line "Failed to Locate STI Device Path" showed before the menu, as in run 2. That line is harmless:
+  SiliciumPkg BootManagerLib looks for a keypad for its volume-up boot-menu hotkey and finds none.
+  This firmware has no key driver at all (no ButtonsDxe, KeypadDxe or SPMI driver in its volume). The user reports
+  the keys worked in run 2; the built-in menu of run 2 also rotates its highlight every 2 s (`rotate = 2`), which
+  the menu payload does not set. Either way it needed a key driver.
+- `stock-simplefb-menu`: the DEBUG log ran on screen, then the text glitched and the phone reset. The last lines
+  were not captured; a photo of them is needed to name the stock driver that faults.
+
+Fix: `BluelineKeyInputDxe` (Mu-only variant), sheng's ShengKeyInputDxe with the SDM845 facts from the stock DTB:
+SPMI arbiter v5 (core 0xC440000, APID map at +0x900, observer 0xE600000 + 0x10000·EE + 0x80·APID), PM8998 PON
+0x800 RT_STS bit 0 = power, bit 1 = volume down (RESIN), PM8998 GPIO6 (peripheral 0xC5) active low = volume up.
+Volume up/down = Up/Down, power = Enter. A host test against a simulated v5 arbiter passes
+(`Drivers/BluelineKeyInputDxe/Test/keys_host.c`).
+
 ## Open items
 
 - DRAM size (`[payload] dram_size`) and the userdata LBA range: read on the phone.

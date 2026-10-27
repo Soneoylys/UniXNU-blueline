@@ -8,7 +8,8 @@ The driver order is polaris's. Changes:
   - every stock binary is built only with BLUELINE_VENDOR_HW = 1 (as sheng's SHENG_VENDOR_HW);
   - the display: the stock DisplayDxe chain with BLUELINE_VENDOR_HW = 1 and USE_CUSTOM_DISPLAY_DRIVER = 1,
     otherwise SimpleFbDxe on the framebuffer ABL left scanning out;
-  - DXE.inc adds UniXNU's RAM disk driver, DarwinBoot and the FDT boot-memory driver (as sheng's DXE.inc).
+  - DXE.inc adds UniXNU's RAM disk driver and DarwinBoot (as sheng's DXE.inc), and for BLUELINE_VENDOR_HW = 0 the
+    FDT boot-memory driver and the SPMI key driver.
 """
 
 import sys
@@ -77,6 +78,8 @@ def main():
         "!if $(BLUELINE_VENDOR_HW) == 0",
         "  # Without the stock drivers no RAM partition table is read: DRAM comes from the FDT ABL passes in x0.",
         "  INF bluelinePkg/Drivers/BluelineBootMemoryDxe/BluelineBootMemoryDxe.inf",
+        "  # Nor is there a ButtonsDxe: power and volume keys straight from the PM8998 over the SPMI arbiter.",
+        "  INF bluelinePkg/Drivers/BluelineKeyInputDxe/BluelineKeyInputDxe.inf",
         "!endif",
     ]
     (dst / "DXE.inc").write_text(convert((src / "DXE.inc").read_text(), extra), newline="\n")
