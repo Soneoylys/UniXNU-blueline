@@ -11,3 +11,4 @@ __pycache__/
 /local.toml
 /out/
 .DS_Store
+/downloads/

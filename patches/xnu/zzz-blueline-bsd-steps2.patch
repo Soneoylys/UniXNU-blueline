@@ -1,0 +1,21 @@
+--- a/bsd/kern/bsd_init.c
++++ b/bsd/kern/bsd_init.c
+@@ -579,6 +579,7 @@
+ 	boolean_t       netboot = FALSE;
+ #endif
+ 
++{ extern void blueline_step(void); blueline_step(); }   /* blueline: before platform_stall_panic_or_spin */
+ #if (DEVELOPMENT || DEBUG)
+ 	platform_stall_panic_or_spin(PLATFORM_STALL_XNU_LOCATION_BSD_INIT);
+ #endif
+@@ -595,8 +596,10 @@
+ #undef bsd_init_kprintf
+ #define bsd_init_kprintf(x, ...) blueline_step()
+ 
++	blueline_step();   /* blueline: before throttle_init */
+ 	throttle_init();
+ 
++	blueline_step();   /* blueline: before printf(copyright) */
+ 	printf(copyright);
+ 
+ #if CONFIG_DEV_KMEM

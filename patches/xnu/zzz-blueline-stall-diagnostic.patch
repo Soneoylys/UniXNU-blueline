@@ -1,0 +1,20 @@
+--- a/osfmk/kern/debug.c
++++ b/osfmk/kern/debug.c
+@@ -2358,6 +2358,17 @@
+ platform_stall_panic_or_spin(uint32_t req)
+ {
+ 	if (xnu_platform_stall_value & req) {
++		/*
++		 * blueline bring-up: the image holds 0 here and the device tree sets nothing, yet run 14 stalled in this
++		 * function at bsd_init. Show the value, the words around it and its physical address on the panic screen.
++		 */
++		{
++			extern vm_offset_t ml_static_vtop(vm_offset_t);
++			volatile uint64_t *p = (volatile uint64_t *)&xnu_platform_stall_value;
++			panic("platform stall value %llx req %x at pa %lx; around %llx %llx [%llx] %llx %llx %llx %llx",
++			    xnu_platform_stall_value, req, (unsigned long)ml_static_vtop((vm_offset_t)p),
++			    p[-2], p[-1], p[0], p[1], p[2], p[3], p[4]);
++		}
+ 		if (xnu_platform_stall_value & PLATFORM_STALL_XNU_ACTION_PANIC) {
+ 			panic("Platform stall: User requested panic");
+ 		} else {

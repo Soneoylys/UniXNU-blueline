@@ -1,0 +1,47 @@
+--- a/osfmk/console/video_console.c
++++ b/osfmk/console/video_console.c
+@@ -139,6 +139,31 @@
+ 	__builtin_arm_dsb(DSB_SY);
+ }
+ 
++/*
++ * blueline bring-up: one block per call along bands 13 and 14 (32 blocks a row), so a photograph shows how many
++ * bsd_init steps ran. Every fifth block is yellow and every tenth red.
++ */
++void blueline_step(void);
++void
++blueline_step(void)
++{
++	static unsigned int steps;
++	unsigned int i = steps++;
++	if (vinfo.v_baseaddr == 0 || vinfo.v_depth != 32 || i >= 64) {
++		return;
++	}
++	unsigned int h = vinfo.v_height / 16, w = vinfo.v_width / 32;
++	unsigned int top = (13 + i / 32) * h, left = (i % 32) * w;
++	uint32_t color = (i % 10 == 9) ? 0x00FF0000 : (i % 5 == 4) ? 0x00FFFF00 : 0x00FFFFFF;
++	for (unsigned int y = top; y + 8 < top + h; y++) {
++		volatile uint32_t *row = (volatile uint32_t *)(vinfo.v_baseaddr + (unsigned long)y * vinfo.v_rowbytes);
++		for (unsigned int x = left; x + 4 < left + w; x++) {
++			row[x] = color;
++		}
++	}
++	__builtin_arm_dsb(DSB_SY);
++}
++
+ void noroot_icon_test(void);
+ 
+ 
+--- a/bsd/kern/bsd_init.c
++++ b/bsd/kern/bsd_init.c
+@@ -590,6 +590,10 @@
+ #else
+ #define bsd_init_kprintf(x, ...) boot_progress_stage("bsd_init: " x)
+ #endif
++/* blueline bring-up: each step also adds a block on the panel (osfmk/console/video_console.c) */
++extern void blueline_step(void);
++#undef bsd_init_kprintf
++#define bsd_init_kprintf(x, ...) blueline_step()
+ 
+ 	throttle_init();
+ 

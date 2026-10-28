@@ -8,7 +8,7 @@ schema_version = 1
 name = "blueline"
 soc = "SDM845"
 os_profile = "ipados-18.7.11-22H384"
-summary = "Google Pixel 3: Mu-Silicium firmware with UniXNU boots by fastboot boot to the UniXNU menu with working keys and a payload volume; the XNU kernel is not built yet."
+summary = "Google Pixel 3: kernel 20 one-core runs userland with verified persistent writable var; SpringBoard fails because CADisplay is missing. A630 GPU core integration is in progress; no GPU phone image or hardware qualification yet."
 
 [[area]]
 id = "configuration"
@@ -20,15 +20,12 @@ inputs = [
   "Target OS: the unchanged iPad7,11 iPadOS 18.7.11 (22H384) restore image (iPad 7th generation, the last arm64 non-arm64e iPadOS build), OS profile ipados-18.7.11-22H384 on a UniXNU branch.",
   "Shared SoC layer: UniXNU-sdm845-common (soc.toml, dts/sdm845.dtsi, configs/sdm845.config, drivers/ArmCpu).",
 ]
-configuration = [
-  "board.toml is format 2 and selects soc_source = sdm845 and os_profile = ipados-18.7.11-22H384 (moved from ipados-17.7.11-21H461 on 2026-10-27).",
-  "dts/blueline.dts includes sdm845.dtsi and enables cpu0 only for the first boot; its memory size is a TODO(device).",
-]
+configuration = ["Format 2 device selects SDM845 and the ipados-18.7.11-22H384 profile; the memory node is 0xb8000000+0xc6000000 with a 2 GiB DarwinBoot window.", "Kernel 17 enables eight CPU nodes and highest regular SDM845 OSM LUT requests. The owner-chosen unverified darwin root uses explicit root-auth/SystemOS development gates, measured SystemOS UUID and original Apple trust caches.", "Kernel 18 explicitly enables native RamBlock and the separate default-off development Data gate, selects a stable Data UUID and carries per-key AMFI queries."]
 procedure = ["./unixnu defconfig blueline_defconfig -D <device>; ./unixnu fetch; ./unixnu status --json; ./unixnu tree"]
-findings = ["Migrated from format 1 (the Pocket Max layout); the format 1 ADT script is replaced by the common generator reading dts/blueline.dts.", "The ipados-18.7.11-22H384 OS profile is not in upstream UniXNU: it is on the owner's branch ipados-18 (xnu-11417.140.69 with the BCM2837 machine layer restored), and its kernel builds (docs/PROGRESS.md kernel 2)."]
+findings = ["Format 2 on the unpublished ipados-18 profile (xnu-11417.140.69); component runtime names and source pins remain unchanged.", "Kernel 17 explicitly selects the existing Pocket Max development root-auth/SystemOS path for the owner-chosen unverified UFS root. Actual compiler records enable those gates and native code-signature hash caching. BOOT-ARGS-AUDIT.md records the comparison with Sheng.", "Run 25 advances to userspace child execution; kernel 18 adds persistence and the per-key query, while preserving signed entitlement decisions and authenticated owner mount requirements."]
 completion = ["All source pins resolve; every selected component has a record; status shows the intended overrides and patch order."]
-limits = ["DRAM size and userdata geometry are not measured; the payload step stops until they are.", "The 22H384 payload text fixups, trust cache pins and OS volume UUID are not set yet."]
-next_action = ["Resolve on the macOS build host and record the status output."]
+limits = ["Uncommitted device/SoC changes and the unpublished OS18 profile are required; feed pins stay unchanged. Hardware verification levels stay unchanged."]
+next_action = ["Observe kernel 18 Data/AMFI results before selecting another userland or hardware change."]
 evidence = [
   { kind = "source", reference = "board.toml", result = "Format 2 board file on UniXNU-sdm845-common; unixnu status on the build Mac resolves the ARM64, sdm845, OS and device layers with ArmCpu from the SoC repository." },
 ]
@@ -56,59 +53,57 @@ evidence = [
 id = "cpu"
 status = "implemented"
 components = ["ArmCpu"]
-paths = ["scripts/*armcpu*"]
-inputs = ["Timer interrupts PPI 1, 2, 3, 0 in the stock DTB: the EL1 virtual timer is INTID 19. PSCI 1.0 over SMC; CPUs 0x000..0x700."]
-configuration = ["ArmCpu from UniXNU-sdm845-common with armcpu-timer-intid=19; cpus=1 and armcpu-self-ipi=1 as polaris."]
-procedure = ["Build the kernel, boot the payload and watch for the timer-driven scheduler (bsd_init needs timer interrupts)."]
-findings = ["UniXNU-polaris (SDM845) reached BSD init on hardware with a PPI 19 timer change in its ArmCpu."]
+paths = ["board.toml", "configs/**", "dts/**", "scripts/*armcpu*"]
+inputs = ["Stock Pixel 3 DTB: virtual timer INTID 19, PSCI SMC, affinities 0x000..0x700; cpucc OSM power/performance windows 0x17d43000+0x1400 and 0x17d45800+0x1400.", "erikkunz/pixel3-ios 5849d065053d76759e28202c12eb17eb2f589d28 patches 0101/0106/0112/0117 and LOG.md: eight-core startup, firmware LUT clocks, coherent idle and write-fault-loop workaround."]
+configuration = ["bluecpufreq=1 maps the measured domains, selects the highest non-turbo firmware LUT index and honors per-core DCVS. Nominal regular ADT frequencies: Silver 1766400000 and Gold 2649600000 Hz. Disabled controllers receive no writes.", "The SoC series omits whole-cache set/way flushing on coherent idle and adds development-only sdm845-fault-loop=1 recovery after repeated successful translation/write faults.", "Current owner rule: cpus=1 sheng-smp=0 until SpringBoard. Eight DT CPU nodes remain enabled; their clocks and affinities are unchanged."]
+procedure = ["Build kernel and payload on the Mac; inspect final symbols and actual FAT/ADT CPU properties; run ArmCpu tests/CpuFreq.cpp with clang++ ASan/UBSan; boot the eight-core image, then one-core fallback if needed."]
+findings = ["Existing ArmCpu already supports eight PSCI slots and the SoC secondary patch matches Affinity1. Enabling E/P tags would exceed the one-cluster personality limit.", "The actual clock planner passes disabled/no-regular/turbo/termination/40-row/per-core tests with ASan/UBSan. Kernel 17 contains its clock counters and the fault-loop tunable; extracted ADTs contain all eight measured affinities and physical clock windows.", "Run 28 kernel 20 eight-core reaches userland after the AMFI fix, then panics in pmap teardown during stackshot activity. Run 29 one-core reaches persistent writable var and SpringBoard startup."]
 completion = ["Every enabled CPU reaches its entry checkpoint and timer/IPI handling works on each enabled CPU."]
-limits = ["One CPU for the first boot."]
-next_action = ["First kernel boot on the phone."]
-evidence = [
-  { kind = "source", reference = "dts/blueline.dts", result = "cpu0 enabled; the GIC, PSCI and timer INTID 19 come from sdm845.dtsi of UniXNU-sdm845-common." },
-]
+limits = ["Eight-core stability and actual clock measurements remain unqualified. Stay one core until SpringBoard; dynamic power governance and suspend/resume are pending."]
+next_action = ["Complete the GPU/display path on one core before returning to eight-core diagnosis."]
+evidence = [{ kind = "source", reference = "docs/BOOT-ARGS-AUDIT.md", result = "Stock-DTB register/affinity evidence; pixel3-ios patch provenance and XNU 11417 adaptation." }, { kind = "source", reference = "docs/PROGRESS.md", result = "Prepared run 25: kernel 17 builds; actual planner ASan/UBSan and final binary/FAT/ADT checks pass. ArmCpu.cpp SHA-256 f0572f7d6f5fcbba97e541984b95751dd5c75d39ddf4b8c8160097a5dcd78f1a; source is uncommitted, hardware is pending." }]
 
 [[area]]
 id = "memory"
 status = "planned"
 components = []
 paths = ["dts/**"]
-inputs = ["DRAM base 0x80000000; the size comes from ABL's FDT on the 4 GB part. Carve-outs of the stock DTB are in bluelinePkg's memory map."]
-configuration = ["owned_memory_size 0x80000000 (2 GiB DarwinBoot window)."]
+inputs = ["DRAM base 0x80000000, 4 GiB (every retail Pixel 3); ABL fills the stock /memory on the phone. Carve-outs of the stock DTB are in bluelinePkg's memory map."]
+configuration = ["dram_size 0x100000000, matching the DTS memory node (the ADT /chosen dram-base and dram-size, which the iOS 18 arm_init requires).", "owned_memory_size 0x80000000: a 2 GiB DarwinBoot window. The window is one contiguous run of the UEFI memory map, so it is smaller than the RAM; the firmware declares 0xB8000000 + 0xC8000000 as one static region (run 6: before that the largest run was 134 MiB; run 7: two adjacent entries, and DxeCore allocates inside one entry only)."]
 procedure = ["Measure the DRAM ranges on the phone."]
 findings = ["Not measured yet."]
 completion = ["All handoff regions are accounted for and each enabled DMA engine accesses its allocated range with the documented cache policy."]
-limits = ["dram_size is a TODO(device)."]
-next_action = ["Read the memory map on the phone."]
+limits = ["The 4 GiB size is the nominal part size, not read on this phone. The largest free run for the window is not measured: DarwinBoot prints it (NO WINDOW ... BIG RUN) when a request does not fit."]
+next_action = ["Run the rebuilt blueline-unixnu-mu-simplefb-xnu18.img (run 8) and see whether DarwinBoot allocates the 2 GiB window."]
 evidence = []
 
 [[area]]
 id = "storage"
-status = "planned"
-components = []
-paths = ["scripts/*ufs*", "scripts/*userdata*"]
-inputs = ["UFS 2.1 host qcom,sdm845-ufshc at 0x1d84000; userdata on LUN 0, 4096-byte blocks."]
-configuration = ["No storage component selected."]
-procedure = ["Pending."]
-findings = ["UniXNU-fajita's NativeUfs carries SDM845 notes (SMMU stream 0x100 mask 0xf, adopting the firmware's UFS SMMU entry); the Mu-only firmware does not initialize UFS."]
+status = "device-verified"
+components = ["ShengUfs", "VirtioMmioBlock", "RamBlock", "VerifiedRoot"]
+paths = ["scripts/*ufs*", "scripts/*userdata*", "scripts/prepare-blueline-data.py", "configs/**", "board.toml", "docs/PERSISTENT-DATA.md"]
+inputs = ["UFS 2.1 host qcom,sdm845-ufshc at 0x1d84000, apps_smmu stream 0x100 mask 0xf; MICRON 128GB-UFS-MT. Root image partition darwin on LUN 0 (native-ufs-partition=darwin): first_lba 0x5f9000, last_lba 0x1dc36ff, 4096-byte blocks, fastboot partition-size:darwin 0x17CA700000, split from the end of userdata (was 0x1f9000..0x1dc37fa, read by NativeUfs in run 20); Android keeps userdata 0x1f9000..0x5f8fff (16 GiB)."]
+configuration = ["ShengUfs resolves to the SDM845 NativeUfs copy; CONFIG_XNU_NATIVE_UFS_VERIFIED=n is the owner choice. Measured darwin geometry and read-only OS/SystemOS windows remain. SystemOS publishes first.", "The development BSD-device lookup requires the exact 22H384 SystemOS UUID 3C5B8DDB-FEED-44F1-852D-F5F64FAB3EBB and exactly one IOMedia descendant under this driver's attached SystemOS window. The kernel mounts it read-only as a union over / before launchd.", "RamBlock packed 80 GiB Data seed, UUID 789552B2-C2BA-476F-BE80-99D2ECA02A7C; write overlay LBA 0x98347f..0x1d836ff within darwin, 1 GiB tail reserve. debug-data-mount=1 -apfs_shared_datavolume sheng-data-persist=2; authenticated owner Data mount remains off."]
+procedure = ["Run 29 kernel 20 one-core: inspect the persistent store header/bitmap across two boots; dump bitmap-selected pages through TWRP; reconstruct the stable APFS Data seed plus overlay on the Mac and mount read-only. Commands and hashes: docs/PROGRESS.md run 29."]
+findings = ["Run 25 photo confirms userland child execution after the prior root-auth wall, but does not show SystemOS/Data mount logs. Kernel 17 had no Data seed or writable var.", "Kernel 18 copies 41 initial var files from the unchanged 22H384 OS and adds empty upstream fixture directories. Data mount refuses volatile/failed storage and checks the actual device/APFS/writability. Host tests pass for fresh/resumed overlays and failure paths.", "Run 29: store resumes with generation 1 by design; bitmap nonzero bytes grow from 9465 to 9825 on the second boot. The 78388 written pages (306.2 MiB) reconstruct readable var logs. Persistent writable var is device verified.", "Readback logs show 103 processes and repeated SpringBoard SIGTRAP because main CADisplay is missing; this is the next display/GPU issue."]
 completion = ["Host: register, clock, link and SMMU facts match the board inventory.", "Reads: SCSI capacity, GPT and known blocks are correct; OS/SystemOS windows stay within userdata.", "Root: the configured volume mounts and launchd starts. Persistence: writes survive reboot within the allocated Data region."]
-limits = ["No root device."]
-next_action = ["After the first kernel boot."]
-evidence = []
+limits = ["Persistent writable var and logs are observed on this phone. GPU addon staging must preserve the stable Data identity, UUID and store geometry. Block verification remains owner-selected disabled. Full SpringBoard operation and display are pending."]
+next_action = ["Keep the stable seed and existing root/store; stage GPU files without resetting or replacing Data identity."]
+evidence = [{ kind = "source", reference = "docs/PERSISTENT-DATA.md", result = "Measured window, immutable seed identity, upstream overlay/mount gates and reproducible commands; 22H384 bindings 190 virtual slots/24 overrides/zero unresolved imports." }, { kind = "host", reference = "docs/PROGRESS.md", command = "python3 ~/blueline/ios18-tools/check-paths.py; bash ~/blueline/ios18-tools/check-overlay.sh", revision = "2470d1acea847b480df66c5b914a2e28f0442151", result = "Device base plus recorded uncommitted changes. Run 26 candidate: 16 actual mount-path cases and RamBlock tests under ASan/UBSan; hardware pending." }, { kind = "device", reference = "docs/PROGRESS.md", result = "Run 29: two one-core boots grow the persistent bitmap; Data overlay readback reconstructs readable APFS var and live userland logs.", command = "fastboot boot build/boot/blueline-unixnu-mu-simplefb-xnu18-k20-onecpu.img (two boots); TWRP dd header/bitmap/pages and adb pull; hdiutil attach -readonly -nomount -imagekey diskimage-class=CRawDiskImage ~/blueline/data-readback/run29-data.img", revision = "2470d1acea847b480df66c5b914a2e28f0442151" }]
 
 [[area]]
 id = "display"
 status = "planned"
-components = []
-paths = ["scripts/*display*", "scripts/*framebuffer*"]
+components = ["GopFramebuffer"]
+paths = ["docs/DISPLAY-22H384.md", "docs/GPU-A630.md"]
 inputs = ["1080x2160 panel; ABL's continuous splash at 0x9d400000 (cont_splash_region, 0x2400000)."]
-configuration = ["SimpleFbDxe in the firmware; the kernel uses the GOP framebuffer DarwinBoot passes."]
-procedure = ["Pending."]
-findings = ["The firmware console and UniXNU menu draw on ABL's framebuffer (runs 2-4)."]
+configuration = ["Firmware console uses ABL GOP; the planned kernel path is UniXNU GopFramebuffer with GPU handoff on 22H384. The owner requires the first new display candidate to include GPU rendering; no CPU-rendered display build/test."]
+procedure = ["Derive the 22H384 IOMobileFramebufferLegacy vtable, fields and bindings from the original kernelcache; implement and qualify a per-OS generator and GPU-only scanout."]
+findings = ["Firmware console/menu work (runs 2-4). Run 29 var readback: SpringBoard dies at failed to find the main CADisplay; IOMFB FB Count is 0.", "Claude derived the 22H384 Legacy 368-slot ABI and required fields/bindings in docs/DISPLAY-22H384.md. Runtime integration is pending."]
 completion = ["A known frame appears with correct geometry and colors, then userland presentation and backlight controls work."]
-limits = ["No kernel display driver selected."]
-next_action = ["Verbose console on the first kernel boot."]
-evidence = []
+limits = ["No kernel CADisplay or GPU scanout qualification. Avoid the existing GopFramebuffer CPU fallback and foreign SM8550 direct-DPU path when integrating this board. iPhone UI idiom is requested but not implemented."]
+next_action = ["Implement the qualified 22H384 GPU-only GopFramebuffer path together with A630/AdrenoMetal."]
+evidence = [{ kind = "source", reference = "docs/DISPLAY-22H384.md", result = "Original kernelcache slot, object-field and function binding derivation; no new phone display run." }]
 
 [[area]]
 id = "input"
@@ -126,17 +121,17 @@ evidence = []
 
 [[area]]
 id = "gpu"
-status = "planned"
-components = []
-paths = ["scripts/*gpu*"]
-inputs = ["Adreno 630."]
-configuration = ["None."]
-procedure = ["Pending."]
-findings = ["None yet."]
+status = "implemented"
+components = ["Adreno740", "AdrenoFirmware", "AdrenoPM4", "ArmSmmu4K"]
+paths = ["package/BluelineGpuPolicy.c", "package/BluelineGpuPolicy.h", "package/build-gpu-policy.py", "scripts/prepare-blueline-gpu.py", "firmware/adreno630.json", "docs/GPU-A630.md"]
+inputs = ["Pixel stock SP1A.210812.016.C2 DTB0: chip 0x06030001, GPU 0x05000000/0x40000, GPUCC 0x05090000/0x9000, GMU 0x0506a000/0x30000, SMMU 0x05040000/0x10000; IRQs 300/304/305.", "A630 GPU SID 0, secure SID 2/1, GMU user/kernel SIDs 4/5. Stock 257..710 MHz GPU OPPs, initial 257 MHz; GMU common 200 MHz level. Firmware hashes pinned in firmware/adreno630.json.", "A630 RSCC GMU+0x23000 and SDM845 PDC subwindows 0x0b280000/0x0b480000; ZAP reservation 0x8c415000/0x2000. Actual GPLL reference, command-db reservation/version and SMMU ownership remain required live inputs."]
+configuration = ["Reuse UniXNU NativeAdreno memory/VM/client interfaces with explicit A6 ring/CP/context profiles; SDM845 operations live in UniXNU-sdm845-common/kits/Sdm845Gpu and stock OPP policy stays in the device package.", "A740 service, SM8550 platform and OS17 accelerator ABI are not selected/qualified for A630. Keep NativeAdreno ABI v2 (128 IBs); flame uses ABI v1 (16 IBs), so its client binaries cannot be copied.", "First new phone candidate must use GPU rendering, one CPU, no bars and the existing persistent Data seed. No kernel 21 or new GPU phone image exists."]
+procedure = ["Verify/extract pinned stock firmware; compare NWylynko/ios-flame at 745c4341af86089efb0df851fa8a27fb8face624 and Linux v6.12; compile actual ARM64/iOS XNU core and board policy recipes. Commands, hashes and host fixtures: docs/GPU-A630.md."]
+findings = ["Legacy HFI passes 54 compiled AArch64 wire/failure checks. SDM845 platform passes 988 ASan/UBSan checks; executed register trace matches 105 A630 HWCG writes, 32 protection spans and 14 hardware policies.", "Command-db parser passes 902 bounds/fault checks; board policy passes 21 synthetic-rail cases. Common A6/A7 ring/CP/context tests pass, including A630 SQE VA 0x400000 and preservation of secure SID 1.", "Thirty common core objects plus the separate board GPU policy compile as ARM64/iOS with -Werror using the resolved XNU recipes. The core archive is not a loadable accelerator."]
 completion = ["GPU submissions complete, mapping/fence handling is correct, a known image renders, and the selected Metal client presents it."]
-limits = ["Not started."]
-next_action = ["After display."]
-evidence = []
+limits = ["Host fixtures do not qualify live power, clocks, SMMU ownership, ZAP authentication, CP execution, Metal or scanout. GPU driver lifecycle/publication and 22H384 accelerator/display ABI remain incomplete."]
+next_action = ["Bind actual qualified board inputs, pinned firmware and owned contexts; authenticate PAS13 ZAP, initialize CP and prove a device-written fence before publication. Qualify OS18 Metal/Turnip and GPU-only scanout; preserve Data identity."]
+evidence = [{ kind = "source", reference = "docs/GPU-A630.md", result = "Pinned upstream/reference revisions and stock firmware/DT facts; shared A6 implementation and device policy are uncommitted." }, { kind = "host", reference = "docs/GPU-A630.md", command = "Sdm845Gpu/build-native.py; package/build-gpu-policy.py; tests/platform.c; tests/command-db.c; tests/register-policy.py", revision = "2470d1acea847b480df66c5b914a2e28f0442151", result = "Device base plus recorded uncommitted component/SoC changes. 30 ARM64/iOS core objects and board policy object; host fault/reference checks pass. No GPU hardware run." }]
 
 [[area]]
 id = "network"
@@ -174,28 +169,25 @@ paths = ["scripts/*power*"]
 inputs = ["PM8998/PMI8998."]
 configuration = ["None."]
 procedure = ["Pending."]
-findings = ["Nothing charges the battery under UEFI or XNU."]
+findings = ["CPU OSM requests are implemented through ArmCpu in the SoC repository, based on pixel3-ios and stock-DTB ranges; firmware retains voltage/thermal control. Battery, brightness, PMGR service and suspend/resume are not implemented."]
 completion = ["Declared power controls and battery readings match observations; each claimed sleep/resume transition restores its dependent peripherals."]
-limits = ["Not started."]
+limits = ["No actual clock/thermal measurement on this phone; no dynamic CPU governor, battery driver or suspend/resume validation."]
 next_action = ["Later."]
 evidence = []
 
 [[area]]
 id = "packaging"
 status = "implemented"
-components = ["SoftwareAES"]
+components = ["SoftwareAES", "RamBlock"]
 paths = ["scripts/build-blueline-payload.py", "scripts/*image*", "patches/**", "package/**"]
 inputs = ["The OS profile's IPSW members, trust caches and prelink roots."]
-configuration = ["The ARM64 profile's archive plan (SoftwareAES and its bindings, mockfs fixture, libpthread)."]
-procedure = ["./unixnu build kernel on the macOS host, then payload and the boot image."]
-findings = ["The payload volume path works on the phone with a menu-only config (run 3)."]
+configuration = ["Latest delivered phone candidate: kernel 20 one-core/run 29, original 22H384 trust caches, stable packed 80 GiB Data seed, no-bars Mu firmware, Android header v1/text_offset 0x80000. No GPU addon."]
+procedure = ["Commands and exact artifact hashes are recorded in docs/PROGRESS.md prepared runs 28/29. Keep named one-core payloads; the historical Mac canonical payload may be eight-core."]
+findings = ["Kernel 20 fixes the AMFI array-iterator stack-headroom check and removes diagnostic colour bars. Run 29 one-core boots to persistent writable var; its named delivered archive is build/share/blueline-run29-kernel20-onecpu.7z."]
 completion = ["Kernel and prelink succeed, payload contains all declared inputs, and the boot image matches the bootloader format and size limit."]
-limits = ["The payload step waits for the measured DRAM size."]
-next_action = ["Measure DRAM, then ./unixnu payload and the boot image."]
-evidence = [
-  { kind = "source", reference = "scripts/build-blueline-payload.py", result = "Payload volume builder used for runs 3-5." },
-  { kind = "host", reference = "docs/PROGRESS.md", command = "./unixnu build kernel -D ../UniXNU-blueline", revision = "d799c7aaa33aef9f9a5ce077305d36e514daca68", result = "Kernel and prelink succeed on the Intel build Mac (Xcode 26.6): kernel.macho sha256 eabccbc2..., experimental candidate (loadable=false, runtime unqualified)." },
-]
+limits = ["Host checks do not qualify phone boot, persistence, active CPU count or actual clocks. Sources remain uncommitted."]
+next_action = ["Package a new one-core/no-bars GPU candidate only after driver, firmware, Metal and display integration checks. Preserve the existing root and stable Data identity."]
+evidence = [{ kind = "source", reference = "scripts/build-blueline-payload.py", result = "Payload volume builder used for runs 3-5." }, { kind = "host", reference = "docs/PROGRESS.md", command = "./unixnu build kernel -D ../UniXNU-blueline", revision = "d799c7aaa33aef9f9a5ce077305d36e514daca68", result = "Kernel and prelink succeed on the Intel build Mac (Xcode 26.6): kernel.macho sha256 eabccbc2..., experimental candidate (loadable=false, runtime unqualified)." }, { kind = "host", reference = "docs/PROGRESS.md", command = "python build/resume-k18/verify-eightcpu.py; python build/resume-k18/verify-onecpu.py", revision = "2470d1acea847b480df66c5b914a2e28f0442151", result = "Device base plus recorded uncommitted changes. Prepared run 26: kernel 18 ad622a97dd41b69463fec44ccd70e3b5685128e317b2b74a30a9350fb0d00198; both boot image verifiers PASS." }]
 
 [[area]]
 id = "diagnostics"
@@ -203,12 +195,10 @@ status = "implemented"
 components = []
 paths = ["scripts/check-*", "scripts/fdt.py", "docs/**", "unixnu.lock"]
 inputs = ["Photos of the phone screen; fastboot getvar all."]
-configuration = ["DEBUG firmware log on the framebuffer."]
+configuration = ["Panic text retained, all diagnostic colour bars/blocks disabled by owner request. Persistent Data enables var log readback; no serial/USB kernel console."]
 procedure = ["scripts/check-blueline.py before each firmware build."]
-findings = ["Each device run is recorded in docs/PROGRESS.md with the image it used."]
+findings = ["Run 27 kernel 19 note exec=sleepd der=3602 fail=- last=Streams identifies the full AMFI path. Kernel 20 changes only the CE array-iterator stack-headroom shift to 14; the separate page-rounding use stays unchanged.", "Run 28 advances past AMFI then eight-core pmap teardown fails during stackshot activity. Run 29 one-core var readback proves userland execution and missing CADisplay causes SpringBoard SIGTRAP."]
 completion = ["Each claimed milestone has a reproducible command, a matching source/image revision and an accessible result."]
 limits = ["No serial or USB log console."]
-next_action = ["Keep recording runs."]
-evidence = [
-  { kind = "source", reference = "docs/PROGRESS.md", result = "Device runs with the image each one used." },
-]
+next_action = ["Record GPU power, firmware, HFI, CP/fence, Metal and scanout checkpoints separately; keep current progress and handoff records."]
+evidence = [{ kind = "source", reference = "docs/PROGRESS.md", result = "Device runs with the image each one used." }]

@@ -1,0 +1,83 @@
+--- a/osfmk/console/video_console.c
++++ b/osfmk/console/video_console.c
+@@ -143,12 +143,34 @@
+  * blueline bring-up: one block per call along bands 13 and 14 (32 blocks a row), so a photograph shows how many
+  * bsd_init steps ran. Every fifth block is yellow and every tenth red.
+  */
++void blueline_mark(unsigned int slot, uint32_t color);
++void
++blueline_mark(unsigned int slot, uint32_t color)
++{
++	/* blueline bring-up: slot 0..7 of band 15 (the bottom band) */
++	if (vinfo.v_baseaddr == 0 || vinfo.v_depth != 32 || slot >= 8) {
++		return;
++	}
++	unsigned int h = vinfo.v_height / 16, w = vinfo.v_width / 8;
++	unsigned int top = 15 * h, left = slot * w;
++	for (unsigned int y = top; y + 8 < top + h; y++) {
++		volatile uint32_t *row = (volatile uint32_t *)(vinfo.v_baseaddr + (unsigned long)y * vinfo.v_rowbytes);
++		for (unsigned int x = left; x + 8 < left + w; x++) {
++			row[x] = color;
++		}
++	}
++	__builtin_arm_dsb(DSB_SY);
++}
++
+ void blueline_step(void);
+ void
+ blueline_step(void)
+ {
+ 	static unsigned int steps;
+ 	unsigned int i = steps++;
++	if (i >= 64) {
++		blueline_mark(6, 0x00FF00FF);   /* the step counter is already past 64: corrupted */
++	}
+ 	if (vinfo.v_baseaddr == 0 || vinfo.v_depth != 32 || i >= 64) {
+ 		return;
+ 	}
+--- a/osfmk/arm64/sleh.c
++++ b/osfmk/arm64/sleh.c
+@@ -2543,6 +2543,7 @@
+ void
+ sleh_irq(arm_saved_state_t *state)
+ {
++	{ extern void blueline_mark(unsigned int, uint32_t); blueline_mark(5, 0x0000FFFF); }   /* blueline: IRQ taken */
+ 	cpu_data_t * cdp __unused             = getCpuDatap();
+ #if MACH_ASSERT
+ 	int preemption_level = sleh_get_preemption_level();
+@@ -2590,6 +2591,7 @@
+ void
+ sleh_fiq(arm_saved_state_t *state)
+ {
++	{ extern void blueline_mark(unsigned int, uint32_t); blueline_mark(3, 0x00FF00FF); }   /* blueline: FIQ taken */
+ 	unsigned int type   = DBG_INTR_TYPE_UNKNOWN;
+ #if MACH_ASSERT
+ 	int preemption_level = sleh_get_preemption_level();
+@@ -2693,6 +2695,7 @@
+ void
+ sleh_serror(arm_context_t *context, uint64_t esr, vm_offset_t far)
+ {
++	{ extern void blueline_mark(unsigned int, uint32_t); blueline_mark(4, 0x00FF8000); }   /* blueline: SError taken */
+ 	task_vtimer_check(current_thread());
+ 
+ 	KDBG_RELEASE(MACHDBG_CODE(DBG_MACH_EXCP_SERR_ARM, 0) | DBG_FUNC_START,
+--- a/bsd/kern/bsd_init.c
++++ b/bsd/kern/bsd_init.c
+@@ -569,6 +569,17 @@
+ {
+ 	boot_progress_stage("bsd_init enter");
+ 	{ extern void blueline_band(unsigned int, uint32_t); blueline_band(5, 0x0000FFFF); }   /* cyan: bsd_init */
++	{
++		/* blueline: what is pending (ISR_EL1 F/I/A) and whether the stall switch is already set at bsd_init entry */
++		extern void blueline_mark(unsigned int, uint32_t);
++		uint64_t isr = __builtin_arm_rsr64("ISR_EL1");
++		blueline_mark(0, (isr & 0x40) ? 0x00FF0000 : 0x00404040);   /* F */
++		blueline_mark(1, (isr & 0x80) ? 0x00FF0000 : 0x00404040);   /* I */
++		blueline_mark(2, (isr & 0x100) ? 0x00FF0000 : 0x00404040);  /* A */
++		if (xnu_platform_stall_value != 0) {
++			blueline_mark(7, 0x00FF0000);
++		}
++	}
+ 	struct uthread *ut;
+ 	vnode_t init_rootvnode = NULLVP;
+ 	struct proc_ro_data kernproc_ro_data = {

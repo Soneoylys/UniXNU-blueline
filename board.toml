@@ -20,10 +20,11 @@ os_profile = "ipados-18.7.11-22H384"
 description = "Google Pixel 3"
 kit = "blueline"
 
-# The ARM64 profile's set plus DarwinBoot. ArmCpu resolves to drivers/ArmCpu of UniXNU-sdm845-common (the virtual
-# timer INTID, armcpu-timer-intid below).
+# The ARM64 profile's set plus DarwinBoot and the UFS storage stack. ArmCpu and ShengUfs resolve to drivers/ of
+# UniXNU-sdm845-common (the virtual timer INTID; fajita's SDM845 copy of NativeUfs). VirtioMmioBlock carries the
+# NativeVirtioBlock class NativeUfs publishes through; VerifiedRoot is its header kit.
 [components]
-include = ["ArmDTPlatform", "ArmCpu", "SoftwareAES", "XnuPrelink", "DarwinBoot"]
+include = ["ArmDTPlatform", "ArmCpu", "SoftwareAES", "XnuPrelink", "DarwinBoot", "ShengUfs", "VirtioMmioBlock", "RamBlock", "VerifiedRoot"]
 
 # The kernel builds on macOS + Xcode. config_fragments apply in order, then the defconfig overrides them. The archive
 # plan is the ARM64 profile's (no board archives yet).
@@ -37,16 +38,18 @@ config_fragments = ["arch:configs/common.config", "soc:configs/sdm845.config", "
 source = "device:dts/blueline.dts"
 include_dirs = ["soc:dts"]
 
-# TODO(device): the GPT entry "userdata" of UFS LUN 0 (4096-byte blocks). The Pixel 3 ships with 64 or 128 GB, so
-# the range is read from the phone. Writing it replaces Android's userdata; that needs the owner's decision first.
-# [userdata]
-# first_lba = 0x0
-# last_lba = 0x0
-# lba_bytes = 4096
-# windows = [
-#   { name = "OS", component = "OS" },
-#   { name = "SystemOS", component = "Cryptex1,SystemOS" },
-# ]
+# The GPT entry "darwin" of UFS LUN 0 (4096-byte blocks) on this 128 GB phone (MICRON 128GB-UFS-MT), made from the end
+# of Android's userdata by scripts/blueline-gpt-split.py (docs/PROGRESS.md "Run 21-GPT"): 1 MiB aligned at both ends,
+# fastboot partition-size 0x17CA700000. Android keeps userdata 0x1f9000..0x5f8fff (16 GiB). NativeUfs finds it by
+# name (native-ufs-partition=darwin). The 64 GB model has another range.
+[userdata]
+first_lba = 0x5f9000
+last_lba = 0x1dc36ff
+lba_bytes = 4096
+windows = [
+  { name = "OS", component = "OS" },
+  { name = "SystemOS", component = "Cryptex1,SystemOS" },
+]
 
 # The firmware: uefi-blueline is a Mu-Silicium checkout with Platforms/Google/bluelinePkg. On Windows,
 # tools/windows/build-firmware.ps1 runs the same EDK II build (this table is the unixnu driver's view of it).
@@ -93,13 +96,17 @@ pagesize = 4096
 
 # The payload volume, the boot image ramdisk: UniXNURamDiskDxe publishes it as Block I/O. UniXNU, UniXNUDxe and
 # DarwinBoot are in the firmware volume (bluelinePkg [Components]), as sheng's.
-# TODO(device): dram_size, the usable DRAM from 0x80000000; it must equal the memory node of dts/blueline.dts.
+# dram_size: the RAM region 0xB8000000..0x17E000000 the window comes from (ABL gives the OS 4064 MiB, to 0x17E0A0000;
+# rounded down to 2 MiB); it must equal
+# the memory node of dts/blueline.dts.
 [payload]
 volume = "BLUELINE"
-size_mib = 192
+size_mib = 80                         # kernel (~55 MB) + ADT; carried as the boot image ramdisk
 loader = "firmware"
-title = "Pixel 3 first boot: XNU to console, one CPU"
-panic_screen = false
+title = "Pixel 3: XNU with persistent Data"
+dram_size = "0xc6000000"
+panic_screen = true                   # panic() on screen: the phone has no serial port
+entry_probe_bars = false              # no entry/MMU stage bars: no static colour bands on the OLED panel
 kernel_args = [
   "-v",
   "serial=3",
@@ -107,17 +114,49 @@ kernel_args = [
   "kt_fixed_zones=120",
   "-no_slto_panic",
   "ml-timeout-lock-panic-scale=40",
-  "cpus=1",                           # one core first, as polaris (dts/blueline.dts enables cpu0 only)
+  "cpus=1",                           # one core until SpringBoard (owner, 2026-10-27; run 28: eight-core not_in_kdp assert)
+  "sheng-smp=0",                     # no secondary starts; restore cpus=8 + sheng-smp=1 (all Silver and Gold cores) after SpringBoard
+  "bluecpufreq=1",                   # SDM845 OSM: highest regular LUT level
+  "sdm845-fault-loop=1",             # pixel3-ios 0117: repeated successful write-fault recovery
   "armcpu-self-ipi=1",                # as polaris and sirius
   "armcpu-timer-intid=19",            # SDM845 EL1 virtual timer is PPI 3 (INTID 19), not PPI 27 (dts/sdm845.dtsi)
+  "native-ufs-root=1",                # root from the userdata image (OS and SystemOS windows); run 20 was probe 10
+  "debug-rootauth-bypass=1",          # post-mount bring-up gate; also requires CONFIG_XNU_DEBUG_ROOTAUTH_BYPASS=y
+  "debug-systemos-union=2",          # read-only SystemOS over /; keep dyld ignition active (Pocket Max's tested path)
+  "ignition_level=1",                # the cache is available through the SystemOS union, without a Preboot volume
+  "native-ufs-partition=darwin",      # the image's GPT partition ([userdata] above); Android keeps "userdata"
+  "debug-data-mount=1",              # upstream typed APFS Data mount on the development root path
+  "-apfs_shared_datavolume",
+  "sheng-data-persist=2",            # RamBlock overlay in the bounded free part of darwin
+  "sheng-log-reserve=1024",          # fixed geometry; retain the final GiB for logs/future inputs
+  "native-entitlements-diag=1",      # preserve AMFI checks; identify the dictionary conversion failure
+  "native-ufs-smmu-stream=0x100",     # SDM845: iommus = <&apps_smmu 0x100 0xf> (as fajita)
+  "native-ufs-smmu-mask=0xf",
+  "native-ufs-smmu-size=0x80000",     # apps_smmu register window
+  "native-ufs-smmu-adopt=1",          # keep the firmware's own entry for the stream when it is a bypass bank
+  # GPU candidate (docs/GPU-A630.md): GopFramebuffer's NativeLegacyDisplay on the GOP framebuffer, frames only through the
+  # GPU hand-off (its CPU copy is removed at build time), the A630 bring-up and the Metal accelerator (package/BluelineGpu.cpp).
+  "offline-mobile-graphics-load=1",  # load IOMobileGraphicsFamily, then register the display classes
+  "offline-legacy-register=1",
+  "offline-legacy-gop=1",
+  "offline-legacy-pm=1",
+  "offline-legacy-validate=1",
+  "offline-legacy-transfer=1",
+  "offline-legacy-phase=4",
+  "offline-legacy-unit-scale=3",     # 1080x2160 pixels -> 360x720 points, an iPhone-sized screen
+  "sheng-fb-gpu=1",                  # frames go to the GPU hand-off presenter
+  "sheng-vsync=60",
+  "blueline-gpu=2",                  # A630 bring-up, native Adreno publication, Metal accelerator
+  "sheng-gpu-addon=1",               # the kernel writes the GPU addon (Metal plugin) into Data; the seed is unchanged
 ]
 
 [payload.adt]
 chip_id = "207"
-# TODO: the OS volume UUID of the 22H384 image set. 04769D26-2CA0-4825-B443-E2E5F88300F2 was 21H461's.
-# root_match_volume_uuid = ""
-owned_memory_size = "0x80000000"      # 2 GiB DarwinBoot window of the 4 GB part
+# The System volume of the 22H384 OS image (094-32804-044.dmg after AEA decryption, "CrystalUpdate22H384.J171J172OS").
+root_match_volume_uuid = "1E171ABC-554E-4A69-B7A7-35169FAC3565"
+owned_memory_size = "0x80000000"      # 2 GiB window: one free run of 0xB8000000..0x180000000 (run 6: the firmware map had only 134 MiB)
 packed_data_ramdisk = true
+persistent_data = true
 
 # The Apple device-tree properties the OS profile does not already supply.
 [adt.product.string]
@@ -125,6 +164,10 @@ model = "google,blueline"
 
 [adt.defaults.u32]
 sleep-disabled = 1                    # no suspend/resume on this board yet
+# Bring-up workaround: kern.hv_vmm_present reads this, and AMFI then skips its PMGRAON latch ("due to AVP") instead
+# of panicking "AMFI: No PMGR?" (run 18). The real fix is a PMGR provider (sheng's ShengPlatformPower, ported to the
+# 22H384 ApplePMGR layout); iOS also treats a vmm-present device as a VM elsewhere.
+vmm-present = 1
 
 [adt.buttons.string]
 compatible = "buttons"

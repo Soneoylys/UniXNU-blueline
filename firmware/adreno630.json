@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "device": "blueline",
+  "factory_url": "https://dl.google.com/dl/android/aosp/blueline-sp1a.210812.016.c2-factory-fa981d87.zip",
+  "vendor_sparse_sha256": "a9eccb93d00997bcb64ac0d4ab9e28c36b62ffa0df1a51f2e2046fc355632793",
+  "vendor_raw_bytes": 465838080,
+  "files": [
+    {"name": "a630_gmu.bin", "bytes": 32768, "sha256": "b07f90299ff2ae33948fcfd6ed67f53fbd287b5bf85ff2d43db11d4d32c1621f"},
+    {"name": "a630_sqe.fw", "bytes": 32136, "sha256": "36298bd53ea3666413d288a3a3f5266f67fcb6db038a0a481af5869d1c17859c"},
+    {"name": "a630_zap.b00", "bytes": 148, "sha256": "b2975f6a4c28a98197c1d694f6e275e71b23ec7e31e32ff5d1f83fdb80a94282"},
+    {"name": "a630_zap.b01", "bytes": 6536, "sha256": "00da95a901a408452216eac75b22016befb83f9b0dc2b9f58102ef736caa3333"},
+    {"name": "a630_zap.b02", "bytes": 1968, "sha256": "519b5538809f54ee566246b0520746a8ea82ca9384ea6bddb0b0e0d3c2de520c"},
+    {"name": "a630_zap.elf", "bytes": 14256, "sha256": "b5e73cff5e70c5cff5abbf41017039855a8aa0fef75ff583f40499a1bca866de"},
+    {"name": "a630_zap.mdt", "bytes": 6684, "sha256": "4abf2c0827d7165dcc8fdc8d0217ab69349775289361f959f8f13b5aa4f1b4cb"}
+  ]
+}

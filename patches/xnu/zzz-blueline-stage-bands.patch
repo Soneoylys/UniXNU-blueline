@@ -1,0 +1,138 @@
+--- a/osfmk/console/video_console.c
++++ b/osfmk/console/video_console.c
+@@ -118,6 +118,27 @@
+ 
+ struct vc_info vinfo;
+ 
++/*
++ * blueline bring-up: paint band n of 16 across the panel (DarwinBoot paints band 0, the entry probe bands 1 and 2), so
++ * a photograph shows the last kernel stage reached when there is no serial port and no panic text.
++ */
++void blueline_band(unsigned int n, uint32_t color);
++void
++blueline_band(unsigned int n, uint32_t color)
++{
++	if (vinfo.v_baseaddr == 0 || vinfo.v_depth != 32 || n >= 16) {
++		return;
++	}
++	unsigned int h = vinfo.v_height / 16;
++	for (unsigned int y = n * h; y + 8 < n * h + h; y++) {
++		volatile uint32_t *row = (volatile uint32_t *)(vinfo.v_baseaddr + (unsigned long)y * vinfo.v_rowbytes);
++		for (unsigned int x = 0; x < vinfo.v_width; x++) {
++			row[x] = color;
++		}
++	}
++	__builtin_arm_dsb(DSB_SY);
++}
++
+ void noroot_icon_test(void);
+ 
+ 
+--- a/osfmk/kern/startup.c
++++ b/osfmk/kern/startup.c
+@@ -767,7 +767,9 @@
+ 
+ #ifdef  IOKIT
+ 	kernel_bootstrap_log("PE_init_iokit");
++	{ extern void blueline_band(unsigned int, uint32_t); blueline_band(3, 0x00FFFF00); }   /* yellow: IOKit start */
+ 	PE_init_iokit();
++	{ extern void blueline_band(unsigned int, uint32_t); blueline_band(4, 0x00FFFFFF); }   /* white: PE_init_iokit returned */
+ #endif
+ 
+ 	assert(ml_get_interrupts_enabled() == FALSE);
+--- a/bsd/kern/bsd_init.c
++++ b/bsd/kern/bsd_init.c
+@@ -568,6 +568,7 @@
+ bsd_init(void)
+ {
+ 	boot_progress_stage("bsd_init enter");
++	{ extern void blueline_band(unsigned int, uint32_t); blueline_band(5, 0x0000FFFF); }   /* cyan: bsd_init */
+ 	struct uthread *ut;
+ 	vnode_t init_rootvnode = NULLVP;
+ 	struct proc_ro_data kernproc_ro_data = {
+@@ -868,6 +869,7 @@
+ 	nwk_wq_init();
+ 	bsd_init_kprintf("calling dlil_init\n");
+ 	dlil_init();
++	{ extern void blueline_band(unsigned int, uint32_t); blueline_band(6, 0x00FF8000); }   /* orange: past dlil_init */
+ #endif /* NETWORKING */
+ #if SOCKETS
+ 	bsd_init_kprintf("calling socketinit\n");
+@@ -1010,6 +1012,7 @@
+ 		int err;
+ 
+ 		bsd_init_kprintf("calling setconf\n");
++		{ extern void blueline_band(unsigned int, uint32_t); blueline_band(7, 0x00FF60C0); }   /* pink: root mount */
+ 		setconf();
+ #if CONFIG_NETBOOT
+ 		netboot = (mountroot == netboot_mountroot);
+--- a/osfmk/arm64/machine_routines.c
++++ b/osfmk/arm64/machine_routines.c
+@@ -370,6 +370,14 @@
+ 	 * Idle_load_context()
+ 	 */
+ 	assert((__builtin_arm_rsr("DAIF") & DAIF_STANDARD_DISABLE) == DAIF_STANDARD_DISABLE);
++	{
++		extern void blueline_band(unsigned int, uint32_t);
++		static int blueline_idle_seen;
++		if (!blueline_idle_seen) {
++			blueline_idle_seen = 1;
++			blueline_band(11, 0x004040FF);   /* violet: first idle */
++		}
++	}
+ 	/* Check for, and act on, a WFE recommendation.
+ 	 * Bypasses context spill/fill for a minor perf. increment.
+ 	 * May unmask and restore IRQ+FIQ mask.
+@@ -958,6 +966,7 @@
+ 	cpu_data_ptr->interrupt_source = source;
+ 	cpu_data_ptr->interrupt_target = target;
+ 	cpu_data_ptr->interrupt_handler = handler;
++	{ extern void blueline_band(unsigned int, uint32_t); blueline_band(8, 0x00A0A0A0); }   /* gray: handler installed */
+ 	cpu_data_ptr->interrupt_refCon = refCon;
+ 
+ 	(void) ml_set_interrupts_enabled(current_state);
+--- a/osfmk/arm64/sleh.c
++++ b/osfmk/arm64/sleh.c
+@@ -2563,6 +2563,17 @@
+ 	    cdp->interrupt_refCon,
+ 	    cdp->interrupt_nub,
+ 	    cdp->interrupt_source);
++	{
++		/* light green: first IRQ handled; band 12 flips white/black every 128 IRQs while they keep coming */
++		extern void blueline_band(unsigned int, uint32_t);
++		static uint32_t blueline_irqs;
++		if (blueline_irqs == 0) {
++			blueline_band(9, 0x0080FF80);
++		}
++		if ((++blueline_irqs & 127) == 0) {
++			blueline_band(12, (blueline_irqs & 128) ? 0x00FFFFFF : 0x00000000);
++		}
++	}
+ #endif
+ 
+ 	entropy_collect();
+--- a/iokit/Kernel/IOPlatformExpert.cpp
++++ b/iokit/Kernel/IOPlatformExpert.cpp
+@@ -62,6 +62,8 @@
+ #include <pexpert/pexpert.h>
+ #include <uuid/uuid.h>
+ #include <sys/sysctl.h>
++
++extern "C" void blueline_band(unsigned int, uint32_t);   /* osfmk/console/video_console.c */
+ }
+ 
+ #define kShutdownTimeout    30 //in secs
+@@ -984,6 +986,13 @@
+ int
+ PEHaltRestartInternal(unsigned int type, uint32_t details)
+ {
++	/* blueline bring-up: red band, and stay on screen instead of restarting (a reset after this is external) */
++	{
++		blueline_band(10, 0x00FF0000);
++		for (;;) {
++			__builtin_arm_wfe();
++		}
++	}
+ 	IOPMrootDomain    *pmRootDomain;
+ 	AbsoluteTime      deadline;
+ 	thread_call_t     shutdown_hang;

@@ -7,3 +7,12 @@ boot.img | factory zip, image-blueline-sp1a.210812.016.c2.zip | 5c1ce19e814e2f19
 dtbo.img | factory zip, image-blueline-sp1a.210812.016.c2.zip | ff7bd6daa08351a3c72992ded9a45d6f50f349d30dc68b1d0cd2eb426f8ab42d | board-id and overlay facts
 bootloader/xbl.img | bootloader image (FBPK entry) | b9bb2fc40b1451282618b840736f6e4e97f3fbd6433b0f8c31c171e53e7527c1 | scripts/extract-blueline-xbl.py (stock DXEs, uefiplat.cfg)
 bootloader/abl.img | bootloader image (FBPK entry) | 43188c1a6ca0e260d7d315ee2f9a0cefc78fd4a1577f2eb53467b362908494fb | ABL boot-image checks (docs/PROGRESS.md run 1)
+# GPU hashes, lengths and factory provenance: firmware/adreno630.json.
+vendor.img | factory zip, image-blueline-sp1a.210812.016.c2.zip | a9eccb93d00997bcb64ac0d4ab9e28c36b62ffa0df1a51f2e2046fc355632793 | scripts/prepare-blueline-gpu.py
+blueline-gpu/firmware/a630_gmu.bin | vendor.img: firmware/a630_gmu.bin | b07f90299ff2ae33948fcfd6ed67f53fbd287b5bf85ff2d43db11d4d32c1621f | SDM845 flat ITCM firmware
+blueline-gpu/firmware/a630_sqe.fw | vendor.img: firmware/a630_sqe.fw | 36298bd53ea3666413d288a3a3f5266f67fcb6db038a0a481af5869d1c17859c | Adreno 630 command processor
+blueline-gpu/firmware/a630_zap.b00 | vendor.img: firmware/a630_zap.b00 | b2975f6a4c28a98197c1d694f6e275e71b23ec7e31e32ff5d1f83fdb80a94282 | PAS 13 metadata
+blueline-gpu/firmware/a630_zap.b01 | vendor.img: firmware/a630_zap.b01 | 00da95a901a408452216eac75b22016befb83f9b0dc2b9f58102ef736caa3333 | PAS 13 metadata
+blueline-gpu/firmware/a630_zap.b02 | vendor.img: firmware/a630_zap.b02 | 519b5538809f54ee566246b0520746a8ea82ca9384ea6bddb0b0e0d3c2de520c | PAS 13 secure segment
+blueline-gpu/firmware/a630_zap.elf | vendor.img: firmware/a630_zap.elf | b5e73cff5e70c5cff5abbf41017039855a8aa0fef75ff583f40499a1bca866de | PAS 13 load image
+blueline-gpu/firmware/a630_zap.mdt | vendor.img: firmware/a630_zap.mdt | 4abf2c0827d7165dcc8fdc8d0217ab69349775289361f959f8f13b5aa4f1b4cb | PAS 13 header/hash table

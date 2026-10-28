@@ -2,8 +2,10 @@
 #
 # Format 2: arch:configs/common.config, soc:configs/sdm845.config and os:configs/ipados.config apply first, then this
 # file overrides them. Goal of this kernel: DarwinBoot hand-off, kernel entry, platform expert (ArmDTPlatform), CPU,
-# GIC and timer (ArmCpu with INTID 19), console on the GOP framebuffer. Not yet: a root device. NativeUfs programs the
-# SM8550 UFS host; the SDM845 one (qcom,sdm845-ufshc at 0x1d84000, UFS 2.1) needs its own backend first.
+# GIC and timer (ArmCpu with INTID 19), console on the GOP framebuffer. UFS: NativeUfs from UniXNU-sdm845-common
+# (drivers/ShengUfs, fajita's SDM845 copy) and the NativeVirtioBlock transport it publishes through, bound to the 22H384
+# IOBlockStorageDevice by the recorded static audit. Root image on darwin (native-ufs-root=1). All eight CPU nodes
+# use ArmCpu's PSCI startup; SDM845 OSM requests and coherent idle/fault-loop patches follow pixel3-ios.
 
 CONFIG_XNU_SOURCE_CORECRYPTO14=y
 CONFIG_XNU_SOURCE_PTHREAD=y
@@ -12,8 +14,26 @@ CONFIG_XNU_ARMCPU=y
 CONFIG_XNU_CRYPTO_BOOTSTRAP="prelinked"
 # CONFIG_XNU_SHENG_PMGR is not set
 # CONFIG_XNU_BOOT_PROGRESS is not set
-# CONFIG_XNU_NATIVE_UFS is not set
-# CONFIG_XNU_NATIVE_ADRENO is not set
-# CONFIG_XNU_NATIVE_LEGACY_DISPLAY is not set
+CONFIG_XNU_NATIVE_UFS=y
+CONFIG_XNU_NATIVE_VIRTIO_BLOCK=y
+CONFIG_XNU_NATIVE_RAM_BLOCK=y
+CONFIG_XNU_DEBUG_DATA_MOUNT=y
+CONFIG_XNU_OWNER_DATA_VOLUME_UUID="789552B2-C2BA-476F-BE80-99D2ECA02A7C"
+# Bring-up (owner's choice, 2026-10-27): NativeUfs without verified blocks, so its windows are published without a
+# VerifiedRoot policy and the kernel carries no hash tables. No block integrity check.
+CONFIG_XNU_NATIVE_UFS_VERIFIED=n
+# Editable/unverified bring-up root: reuse the Pocket Max development root-auth gate. It also requires the exact
+# boot argument debug-rootauth-bypass=1; Apple FSIOC_KERNEL_ROOTAUTH still runs and its failure is logged.
+CONFIG_XNU_DEBUG_ROOTAUTH_BYPASS=y
+# Read-only SystemOS union and dyld diagnostics from the existing Pocket Max development path. UUID measured in
+# the decrypted 22H384 SystemOS image on the build Mac; the owner mount's 21H461 default does not apply.
+CONFIG_XNU_DEBUG_SYSTEMOS_UNION=y
+CONFIG_XNU_OWNER_CACHE_VOLUME_UUID="3C5B8DDB-FEED-44F1-852D-F5F64FAB3EBB"
+# Original 16 KiB CodeDirectory hashes are verified before deriving 4 KiB page hashes, including dyld cache files.
+CONFIG_XNU_NATIVE_CS_HASH_CACHE=y
+# GPU candidate: build/adreno740/libAdreno740.a and build/native-legacy-display/libNativeLegacyDisplay.late.a come from
+# package/build-blueline-kernel-archives.sh (A630 bring-up, Metal accelerator, GopFramebuffer for 22H384).
+CONFIG_XNU_NATIVE_ADRENO=y
+CONFIG_XNU_NATIVE_LEGACY_DISPLAY=y
 CONFIG_XNU_NATIVE_MOBILE_DISPLAY=n
 CONFIG_XNU_ARMVIRT_PLATFORM=n

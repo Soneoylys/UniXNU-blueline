@@ -1,0 +1,47 @@
+--- a/osfmk/arm64/sleh.c
++++ b/osfmk/arm64/sleh.c
+@@ -2512,6 +2512,34 @@
+ 	__builtin_unreachable();
+ }
+ 
++/*
++ * blueline: an IRQ before any interrupt handler is installed (run 10 jumped to cpu_data's NULL handler during
++ * bsd_init). Report the GIC CPU interface and timer state instead; ICC_* reads need ICC_SRE_EL1.SRE.
++ */
++extern volatile uint32_t armcpu_registered __attribute__((weak));
++extern volatile uint32_t armcpu_gic_ready __attribute__((weak));
++
++static void __attribute__((noreturn, noinline))
++blueline_unhandled_irq(arm_saved_state_t *state)
++{
++	uint64_t sre = __builtin_arm_rsr64("S3_0_C12_C12_5");          /* ICC_SRE_EL1 */
++	uint64_t igrpen1 = 0, igrpen0 = 0, hppir1 = 0, pmr = 0, rpr = 0, iar1 = 0;
++	if (sre & 1) {
++		igrpen1 = __builtin_arm_rsr64("S3_0_C12_C12_7");        /* ICC_IGRPEN1_EL1 */
++		/* ICC_IGRPEN0_EL1 is not read: Group 0 belongs to EL3 here, and the access reset the phone (runs 11-16) */
++		hppir1 = __builtin_arm_rsr64("S3_0_C12_C12_2");         /* ICC_HPPIR1_EL1 */
++		pmr = __builtin_arm_rsr64("S3_0_C4_C6_0");              /* ICC_PMR_EL1 */
++		rpr = __builtin_arm_rsr64("S3_0_C12_C11_3");            /* ICC_RPR_EL1 */
++		iar1 = __builtin_arm_rsr64("S3_0_C12_C12_0");           /* ICC_IAR1_EL1 (acknowledges) */
++	}
++	panic("IRQ without a handler: iar1 %llx hppir1 %llx igrpen1 %llx igrpen0 %llx sre %llx pmr %llx rpr %llx "
++	    "isr %llx cntv_ctl %llx cntp_ctl %llx armcpu %u/%u pc %llx",
++	    iar1, hppir1, igrpen1, igrpen0, sre, pmr, rpr, __builtin_arm_rsr64("ISR_EL1"),
++	    __builtin_arm_rsr64("CNTV_CTL_EL0"), __builtin_arm_rsr64("CNTP_CTL_EL0"),
++	    &armcpu_registered ? armcpu_registered : 0xffffffffU, &armcpu_gic_ready ? armcpu_gic_ready : 0xffffffffU,
++	    get_saved_state_pc(state));
++}
++
+ void
+ sleh_irq(arm_saved_state_t *state)
+ {
+@@ -2528,6 +2556,9 @@
+ 	PE_handle_ext_interrupt();
+ #else
+ 	/* Run the registered interrupt handler. */
++	if (__improbable(cdp->interrupt_handler == NULL)) {
++		blueline_unhandled_irq(state);
++	}
+ 	cdp->interrupt_handler(cdp->interrupt_target,
+ 	    cdp->interrupt_refCon,
+ 	    cdp->interrupt_nub,

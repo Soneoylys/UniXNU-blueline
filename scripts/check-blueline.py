@@ -18,10 +18,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 FOREIGN_VALUES = ('0x17100000', '0x17180000', 'sm8550', 'sm8250', '0x2f3840', '0x3d0abfa', '0xb8000000', '0xa7100000',
                   '0x9c000000')
-# sheng and Pocket Max arguments that drive their SoC's hardware (NativeUfs, Adreno, touch, cpufreq, SD card).
-FOREIGN_ARGUMENTS = ('native-ufs-root', 'sheng-touch', 'sheng-gpu-power', 'sheng-gpu-metal', 'sheng-gpu-perf', 'sheng-gpu-addon',
-                     'sheng-fb-gpu', 'sheng-data-persist', 'sheng-banner', 'armcpu-spi-ipi', 'sheng-cpufreq', 'pm-touch',
-                     'pm-landscape', 'pm-sd-dma', 'pm-gpu', 'pm-buttons', 'sheng-smp')
+# sheng and Pocket Max arguments that drive their SoC's hardware (Adreno, touch, cpufreq, SD card). native-ufs-root is
+# allowed: blueline's NativeUfs is the SDM845 copy in UniXNU-sdm845-common, run with the SDM845 SMMU arguments.
+# sheng-smp and sheng-data-persist are generic ArmCpu/RamBlock gates backed by this SDM845 copy.
+FOREIGN_ARGUMENTS = ('sheng-touch', 'sheng-gpu-power', 'sheng-gpu-metal', 'sheng-gpu-perf', 'sheng-gpu-addon',
+                     'sheng-fb-gpu', 'sheng-banner', 'armcpu-spi-ipi', 'sheng-cpufreq', 'pm-touch',
+                     'pm-landscape', 'pm-sd-dma', 'pm-gpu', 'pm-buttons')
 FIRMWARE = ROOT / '.cache' / 'firmware'
 PINNED = {
     'bootloader-blueline-b1c1-0.4-7617406.img': '85a788ecb531b4d7351e7c867159c29bd40d1ad849425040e18c59cfb90d5dc6',
@@ -57,6 +59,12 @@ def problems(board, text):
         if argument.split('=', 1)[0] in FOREIGN_ARGUMENTS:
             found.append(f'kernel argument {argument} drives sheng or Pocket Max hardware')
     adt = payload.get('adt', {})
+    if 'sheng-data-persist=2' in payload.get('kernel_args', []):
+        components = board.get('components', {}).get('include', [])
+        if 'RamBlock' not in components or 'ShengUfs' not in components or not adt.get('persistent_data'):
+            found.append('persistent Data requires RamBlock, SDM845 ShengUfs and persistent_data=true')
+        if 'native-ufs-partition=darwin' not in payload.get('kernel_args', []):
+            found.append('persistent Data must use the measured darwin partition')
     owned = int(str(adt.get('owned_memory_size', '0')), 0)
     if owned > 0xC0000000:
         found.append(f'[payload.adt] owned_memory_size {owned:#x} leaves too little of the 4 GB for the firmware and carve-outs')

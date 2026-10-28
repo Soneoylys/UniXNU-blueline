@@ -1,10 +1,10 @@
 # UniXNU-blueline
 
 > [!WARNING]
-> **This repository is entirely AI-generated** (Anthropic Claude Code, under the direction of the owner), as
+> **This repository is entirely AI-generated** (Anthropic Claude Code and Codex, under the direction of the owner), as
 > UniXNU-pocket-max. No line has been reviewed by a human firmware or kernel engineer. The firmware has run on a
-> Pixel 3 (docs/PROGRESS.md); the kernel has not. Read before you run anything. Every image here is for `fastboot boot`, which is temporary and
-> changes no partition.
+> Pixel 3, and kernel 17 reaches a userspace child-execution entitlement check before an AMFI panic (docs/PROGRESS.md).
+> Boot images use temporary `fastboot boot`; kernel 18 also writes persistent Data inside the allocated `darwin` region.
 
 Experimental [UniXNU](https://github.com/UniXNU/UniXNU) device repository for the **Google Pixel 3 (blueline)**:
 Snapdragon 845 (SDM845), 4 GB RAM, UFS 2.1, 1080x2160 OLED panel.
@@ -32,11 +32,14 @@ SP1A.210812.016.C2), extracted with `scripts/extract-blueline-xbl.py`, and the m
 | `bluelinePkg` firmware volume builds on Windows (three variants) | done |
 | Boot images for `fastboot boot` (header v1, appended DTB, text_offset 0x80000) | done |
 | UniXNU menu, payload volume and keys on the phone (Mu-only firmware) | **works** (runs 2-4); the stock-driver variants crash |
-| Format 2 device repository on UniXNU-sdm845-common | done; kernel build on macOS next |
-| DarwinBoot, XNU kernel entry | needs the kernel and the measured DRAM size |
-| Root device | SDM845 UFS host has no XNU driver yet (NativeUfs is SM8550); userdata layout needs the phone |
+| Format 2 device repository on UniXNU-sdm845-common | done; iPadOS 18.7.11 kernel 17 builds on the owner's Mac |
+| DarwinBoot, XNU kernel entry | reaches BSD init and root-device matching on one CPU |
+| Root device | kernel 17 reaches `posix_spawn`; both CPU variants panic in AMFI dictionary conversion. Kernel 18 uses Apple's per-key entitlement API; phone test pending |
+| CPU | eight-core candidate with SDM845 firmware LUT clock requests and pixel3-ios idle/stall workarounds; hardware count/speed pending |
 
 [docs/PROGRESS.md](docs/PROGRESS.md) has the variants, the test procedure and what to report.
+[docs/BOOT-ARGS-AUDIT.md](docs/BOOT-ARGS-AUDIT.md) compares the Sheng/Pocket Max startup settings and Pixel 3 CPU evidence.
+[docs/PERSISTENT-DATA.md](docs/PERSISTENT-DATA.md) records the Data seed, bounded overlay and AMFI change.
 
 ## Contents
 
