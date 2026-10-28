@@ -26,6 +26,10 @@ extern volatile uint32_t blueline_display_state[12] __attribute__((weak_import))
 extern volatile uint64_t native_gop_gpu_completions __attribute__((weak_import));
 extern volatile int32_t blueline_keys_state[8] __attribute__((weak_import));
 extern volatile uint32_t blueline_kick_state[12] __attribute__((weak_import));
+// ArmCpu (drivers/ArmCpu): per logical core architectural timer interrupts and SGI 0 (IPIs) taken, IPIs sent.
+extern volatile uint32_t armcpu_core_timer[8] __attribute__((weak_import));
+extern volatile uint32_t armcpu_core_sgi[8] __attribute__((weak_import));
+extern volatile uint64_t armcpu_ipi_sent __attribute__((weak_import));
 extern volatile uint32_t native_hid_input_events[8] __attribute__((weak_import));
 extern volatile int32_t native_hid_input_results[8] __attribute__((weak_import));
 extern size_t blueline_gpu_status_text(char *, size_t) __attribute__((weak_import));
@@ -105,6 +109,13 @@ static void compose(char *out, size_t cap, const char *why, unsigned now) {
     ADD("\n");
   }
   if (&native_gop_gpu_completions) ADD("[gop] gpu completions %llu\n", (unsigned long long)native_gop_gpu_completions);
+  if (&armcpu_core_timer && &armcpu_core_sgi && &armcpu_ipi_sent) {
+    ADD("[cpu] ipi sent %llu | timer", (unsigned long long)armcpu_ipi_sent);
+    for (unsigned i = 0; i < 8; ++i) ADD(" %u", armcpu_core_timer[i]);
+    ADD(" | sgi");
+    for (unsigned i = 0; i < 8; ++i) ADD(" %u", armcpu_core_sgi[i]);
+    ADD("\n");
+  }
   if (&blueline_kick_state) {
     ADD("[kick] last %u |", blueline_kick_state[0]);
     for (unsigned i = 1; i < 12; ++i) ADD(" %u", blueline_kick_state[i]);

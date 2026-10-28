@@ -1733,3 +1733,24 @@ retireSwap and finishGpuSwap. BluelineDisplayProbe counts them (`blueline_kick_s
 1 transfer off, 2 still transferring, 3 powered off, 4 no mapping, 5 not primary, 6 no pending swap, 7 not validated, 8 no
 IOSurface, 9 offered to the GPU, 10 retirement could not activate, 11 GPU completion without a frame. Two payloads of the same kernel:
 one core, and eight cores (`cpus=8 sheng-smp=1`) as the first eight-core test since run 28's `not_in_kdp` assert.
+
+### Run 28 eight-core failure re-examined (2026-10-28)
+
+Owner asked why the earlier eight-core attempt failed. From the xnu-11417 source in our tree:
+- `not_in_kdp` is a global cleared only while one core is inside a debugger operation (`handle_debugger_trap`; userland
+  stackshots take this path). `pmap_tt1_deallocate` asserts it (DEVELOPMENT kernel), so the run 28 panic means another core
+  was still running `pmap_destroy` during a stackshot.
+- The halt is `DebuggerXCallEnter` (osfmk/arm/model_dep.c):
+  - The stackshot core sends SIGPdebug through `cpu_signal` to every other core. That is ArmCpu::signalCPU, an SGI 0 via
+    ICC_SGI1R_EL1; the affinity encoding is right for SDM845's 0x000..0x700.
+  - It waits `debug_ack_timeout`, the machine timeout "debug-ack" = 240000 timebase ticks. That is 10 ms on Apple's 24 MHz,
+    and 12.5 ms on SDM845's 19.2 MHz.
+  - On timeout it does not panic. It tries `ml_dbgwrap_halt_cpu`, which the SDM845 does not have, logs "Debugger
+    synchronization timed out", and the stackshot proceeds with that core still running.
+- So at least one core did not take its SGI within 12.5 ms. Either it was slow to wake (deep idle, a long
+  interrupts-masked section) or the SGI never arrived. run 29 showed bluetoothd requesting a stackshot every few seconds,
+  which makes the race frequent.
+- Run 43's eight-core payload sets `ml-timeout-debug-ack=19200000` (1 s), and kernel 35 logs per-core timer and SGI counts
+  (`[cpu]`). A slow core then acknowledges in time. A core whose SGI count stays 0 never receives IPIs, which would also
+  break scheduling, TLB shootdowns and the other halts.
+- Still unchecked: ArmCpu's idle/wake path for the Gold cluster, and whether QHEE traps ICC_SGI1R_EL1.
