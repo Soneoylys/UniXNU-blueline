@@ -114,7 +114,7 @@ unsigned bootArg(const char *name, unsigned fallback) {
 extern "C" unsigned char iso_font[256 * 16];   // XNU osfmk/console/iso_font.c, 8x16
 extern "C" volatile uint64_t native_gop_gpu_completions;
 extern "C" volatile uint32_t blueline_display_state[12];
-constexpr unsigned kLines = 14, kCols = 44, kScale = 3, kTop = 1180;
+constexpr unsigned kLines = 14, kCols = 44, kScale = 3, kTop = 1180, kLeft = 12;   // 12 + 44 * 24 = 1068 <= 1080
 char gStatus[kLines][kCols + 1];
 unsigned gStatusCount;
 OSSharedPtr<IOMemoryMap> gFbMap;
@@ -139,7 +139,7 @@ void drawLine(unsigned row, const char *text) {
     if (y0 + 16 * kScale > gVideo.v_height) return;
     for (unsigned gy = 0; gy < 16; ++gy)
         for (unsigned sy = 0; sy < kScale; ++sy) {
-            volatile uint32_t *px = reinterpret_cast<volatile uint32_t *>(gFb + (y0 + gy * kScale + sy) * stride) + 24;
+            volatile uint32_t *px = reinterpret_cast<volatile uint32_t *>(gFb + (y0 + gy * kScale + sy) * stride) + kLeft;
             bool ended = false;
             for (unsigned c = 0; c < kCols; ++c) {
                 const unsigned char ch = ended || !text[c] ? ' ' : static_cast<unsigned char>(text[c]);
@@ -163,7 +163,7 @@ void statusThread(void *, wait_result_t) {
 }
 void statusStart() {
     if (!bootArg("blueline-gpu-status", 1) || PE_current_console(&gVideo) || gVideo.v_depth != 32 || !gVideo.v_baseAddr ||
-        gVideo.v_width < 24 * 2 + kCols * 8 * kScale || gVideo.v_height <= kTop)
+        gVideo.v_width < kLeft + kCols * 8 * kScale || gVideo.v_height <= kTop)
         return;
     IODeviceMemory *memory = IODeviceMemory::withRange(gVideo.v_baseAddr, gVideo.v_rowBytes * gVideo.v_height);
     if (!memory) return;
@@ -599,10 +599,11 @@ bool publishMetal() {
 }
 
 void gpuThread(void *, wait_result_t) {
+    statusStart();
+    screen("display up, GPU starts in %u s", bootArg("blueline-gpu-delay-ms", 10000) / 1000);
     IOSleep(bootArg("blueline-gpu-delay-ms", 10000));
     const unsigned mode = bootArg("blueline-gpu", 0);
     IOLog("BluelineGpu: mode %u starting\n", mode);
-    statusStart();
     if (bringUp() && publish() && mode >= 2) publishMetal();
 }
 }   // namespace
