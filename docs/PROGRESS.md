@@ -1884,3 +1884,16 @@ Written, NOT built or tested:
 - package/BluelineLog.c: runs ArmCpu's armcpu_sgi_selfprobe once at log start (which SGIs 0..15 become pending as Group 1/0
   on that core), resends one IPI after it, and logs `[sgi] probe …`. BluelineLog.c is built by build-blueline-gpu.py, so
   the archive script has to run again.
+
+### Run 47 prepared (2026-10-28): eight cores with IPIs on SGI 1 (software rendering)
+
+The owner set the GPU aside for now and continues with software rendering. Built the handoff's pending IPI fix
+(UniXNU-sdm845-common 698dc78, pushed; feeds.toml pinned to it): ArmCpu's `armcpu-ipi-sgi` (board: `armcpu-ipi-sgi=1`) moves
+the kernel's IPIs from SGI 0, which reached no core in runs 43/46b, to SGI 1, as the iOS 16 Pixel 3 port does (ios-sweet
+SWEET_IPI_SGI, verified there on all eight cores). The UFS log gains the `[sgi]` self-probe line.
+Kernel 38 6e159c60…16dc (CPU-copy archives, `CPU_COPY=1`; Mac ~/blueline/run47-build.sh). Eight-core payload 6bc09639…2f21 (trust
+cache 26ed8386…, no GPU arguments, `offline-legacy-cpu-present=1`, fajita copy speedups). Boot image
+`blueline-unixnu-mu-simplefb-xnu38-swrender-8cpu.img` e7f2c854f7b72d5a769c1d513efce800ea79cae2855fbe5ee50c7372c8bdeee9,
+archive `build/share/blueline-run47-kernel38-swrender.7z` 7f1bc50c859a1c3ea0e93303271ed9ec8f8a0c7212eb136042e53963bd1195d2.
+What to read in its dump: `[cpu]` SGI counts above 0 on every core and `ipi sent` rising; `[sgi]` g1 bit 1 set. If SGI 1 also fails, the
+next step is `armcpu-spi-ipi=1` (sheng's software-pended SPI IPIs).
