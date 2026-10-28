@@ -1630,3 +1630,30 @@ UniXNU d99aa94). The GPU addon has 9 files, 12,173,576 bytes. Payload 738b4b40�
 `build/boot/blueline-unixnu-mu-simplefb-xnu31b-gpu.img` c9ef18de14bc2bb3060b02a14c87b0cf449d566836ae92472a80420e60ac9b97,
 archive `build/share/blueline-run40-kernel31b-gpu.7z` 479d0ec0f85c57778400ad2196af27f291cb772b5c748b1bf170764f7f2850a9.
 Tools added on the Mac: `~/blueline/ios18-tools/objc_class_size.py` and `dsc_disasm.py` (read the 22H384 cache in place).
+
+### Run 40 result (2026-10-28): first GPU frame; PreBoard dims the panel for idle (no input to wake it)
+
+The owner saw the status text vanish at about 2 minutes, then a black screen. The readback archive has SHA-256 fd069b06…5007.
+- UFS log: 241 rounds, 398 s, 0 write errors. The A630 brings up exactly as in run 38. backboardd opened the accelerator twice,
+  without crashing, so the run 39 abort is fixed. The scanout client marked 6720/6730/6731: one frame offered, copied by the GPU
+  and completed (`[gop] gpu completions 1`). Six command buffers were committed and completed, with 2.3 s mean and 3.8 s max
+  commit to complete. Pipelines: 72 made, 42 s total, 14.6 s max. The VkPipeline cache missed 119 times (first boot with the
+  Library/Caches directory). The plugin's calls stopped at about 154 s (log uptime). After that only the monitor heartbeat
+  (0x6A38) repeats.
+- Runtime errors (telemetry P rows): a metallib with `LibraryKind(1)` (Apple file type 1, which metal2vulkan
+  accepts only as 0 executable or 2 dynamic), and one render pipeline refused as `InvalidDescriptor(ColorAttachment { index: 2 })`.
+  The second is from metal2vulkan's link checks (graphics.rs: an input attachment or a fragment output at color 2 that the
+  descriptor's attachment 2 does not match). The descriptor is not logged yet.
+- Unified log (boot 7BD088AD, /var rebuilt with `readback.sh 40`): SpringBoard runs, blocked for the alternate system app
+  PreBoard (PBASimpleLockScreenView).
+  - The first PreBoard (pid 109) force-undimmed and then dimmed for idle. Its CoreAnimation transition to the display-off state
+    did not finish within 15 s (rendering too slow), so BacklightServices' watchdog aborted it (exit domain
+    backlightservices code 20).
+  - The second PreBoard (pid 171) force-undimmed at mach 164.1 s. It logged "dimming for idle" 30 s later (BLS timestamps
+    3150384403 → 3734936979 at 19.2 MHz).
+  - backboardd then set the display off (`IOMFBDisplay::set_enabled=0`, about 154 s log uptime) and never turned it back on.
+  - The board has no touch or kernel buttons, so nothing can wake it.
+  - liveactivitiesd SIGTRAP loops, as before.
+Conclusion: the black screen is the idle dim, not a GPU fault. Only one frame reached the panel before it went dark, and
+the photo shows it as black. Its content is unknown: the PreBoard lock view is mostly black, and the failed pipeline may have
+dropped its text. The two readback Data images on the Mac (runs 39/40) are detached.
