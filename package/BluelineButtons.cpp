@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: BSD-2-Clause-Patent
-// Power and volume-down keys of the Pixel 3 (blueline) for iOS, sent as the Consumer Power and Volume Decrement bits of
-// ShengHidInput's report 2 (NativeHidInput, built for 22H384 by package/build-blueline-hid.py): the device sits on the
-// original IOHIDFamily, whose event driver hands the keys to backboardd (power wakes and sleeps the display).
-// The keys are the PM8998 PON real-time status (SID 0, peripheral 0x08, register 0x10: bit 0 KPDPWR, bit 1 RESIN), read
-// every 20 ms through this EE's observer channel of the SDM845 PMIC arbiter v5 (spmi@c440000: core 0xc440000, obsrvr
-// 0xe600000, cnfg 0xc40a000), as bluelinePkg's BluelineKeyInputDxe and pixel3-ios 0104-blueline-keys.patch read them.
-// Read-only: the only writes are EXT_READL commands to the observer channel. No PMIC register is written, no interrupt is
-// configured or acknowledged. Volume up (PM8998 GPIO 6) does not follow the key as ABL leaves the pin, so it is not read.
-// Boot argument blueline-keys=0 turns all of this off.
+// Power and volume keys of the Pixel 3 (blueline), ported from refs/pixel3-ios bsd/dev/blueline_keys.c (patches 0104, 0109),
+// polled every 20 ms through this EE's observer channel of the SDM845 PMIC arbiter v5 (core 0xc440000, obsrvr 0xe600000, cnfg
+// 0xc40a000):
+//   power       PM8998 PON (SID 0, peripheral 0x08) RT_STS bit 0 (KPDPWR)
+//   volume down PM8998 PON RT_STS bit 1 (RESIN)
+//   volume up   PM8998 GPIO 6 (SID 0, peripheral 0xc5) STATUS1 bit 0, low when pressed. ABL leaves it an input without
+//               pull-up, so the 30 uA pull-up is set once (DIG_PULL_CTL 0xc542 = 0, Linux's bias-pull-up for this key), through
+//               the read/write channel and only if the apps EE owns that APID: the one PMIC register written (bluevolup=0 skips it).
+// The keys go out as the reference's ios-sweet SweetHIDButtons sends them (Consumer Power, Volume Increment, Volume Decrement)
+// on ShengHidInput's consumer-control device (report 2, built for 22H384 by package/build-blueline-hid.py). The touch
+// device (package/BluelineTouch.cpp) is started here too, after the class registration. blueline-keys=0 turns all of this off.
 #include <IOKit/IOLib.h>
 #include <IOKit/IOService.h>
 #include <IOKit/IODeviceMemory.h>
@@ -22,16 +24,12 @@ extern "C" {
 extern kmod_info_t g_kernel_kmod_info;
 void native_hid_static_init(void) __asm__("__GLOBAL__sub_I_NativeHidInput.cpp");
 IOService *native_hid_input_allocate(void);
+IOService *native_hid_touch_allocate(void);
 kern_return_t OSKextLoadKextWithIdentifier(const char *);
-// NativeHidInput's touch inputs. The board has no touch driver yet; without sheng-touch-hid=1 the device publishes no
-// digitizer collection and never reads these.
-volatile uint32_t native_touch_seq, native_touch_count, native_touch_hid_reports;
-volatile int native_touch_xs[12], native_touch_ys[12], native_touch_ids[12];
-// The kernel links statically, so NativeHidInput's weak reference still needs a definition: no touch producer to notify.
-void native_touch_set_sink(void (*)(void *), void *) {}
+void blueline_touch_start(void);   // BluelineTouch.cpp
 // [0] stage (1 arbiter, 2 HID kexts, 3 IOHIDResource, 4 class registered, 5 device started, 6 polling; negative: the step that
-// failed), [1] arbiter version, [2] PON APID, [3] IOHIDFamily load, [4] IOHIDEventDriver load, [5] key changes, [6] pressed mask,
-// [7] read errors
+// failed), [1] arbiter version, [2] PON APID | GPIO 6 APID << 16 | volume up on << 31, [3] IOHIDFamily load, [4] IOHIDEventDriver
+// load | touch device started << 8, [5] key changes, [6] pressed mask, [7] read errors
 volatile int32_t blueline_keys_state[8];
 // NativeHidInput's observations: [event] count and last result (2 started, 3 tick, 4 button report).
 volatile uint32_t native_hid_input_events[8];
@@ -47,15 +45,16 @@ void blueline_buttons_start(void);
 }
 
 namespace {
-constexpr uint64_t kCore = 0xc440000, kObsrvr = 0xe600000, kCnfg = 0xc40a000;
-constexpr uint32_t kPonPpid = 0x008, kNoApid = 0xffff;
-constexpr uint8_t kPonRtSts = 0x10, kPowerBit = 1u << 0, kResinBit = 1u << 1;
+constexpr uint64_t kCore = 0xc440000, kObsrvr = 0xe600000, kCnfg = 0xc40a000, kChnls = 0xc600000;
+constexpr uint32_t kPonPpid = 0x008, kGpio6Ppid = 0x0c5, kNoApid = 0xffff;
+constexpr uint8_t kPonRtSts = 0x10, kPowerBit = 1u << 0, kResinBit = 1u << 1, kGpioStatus1 = 0x08, kGpioPull = 0x42;
 // Report 2 bits (NativeHidInput): 1 Power, 2 Volume Increment, 3 Volume Decrement.
-constexpr uint32_t kReportPower = 1u << 1, kReportVolumeDown = 1u << 3;
+constexpr uint32_t kReportPower = 1u << 1, kReportVolumeUp = 1u << 2, kReportVolumeDown = 1u << 3;
 
 struct Window {IOMemoryMap *map; volatile uint32_t *va;};
-Window gCore, gObs, gCnfg;
-uint32_t gPon = kNoApid;
+Window gCore, gObs, gCnfg, gChannel;
+uint32_t gPon = kNoApid, gGpio = kNoApid;
+bool gVolumeUp;
 void (*volatile gSink)(void *, uint32_t);
 void *volatile gSinkContext;
 
@@ -101,6 +100,23 @@ bool readByte(uint32_t apid, uint8_t address, uint8_t *out) {
     return false;
 }
 
+// One-byte EXT_WRITEL on the read/write channel of the GPIO 6 APID (0x10000 per APID), only if the apps EE owns it.
+bool writeByte(uint32_t apid, uint8_t address, uint8_t value) {
+    if (apid == kNoApid || apid != gGpio || (rd(gCnfg, 0x700 + 4 * apid) & 7) != 0) return false;
+    if (!gChannel.va && !mapWindow(gChannel, kChnls + 0x10000ull * apid, 0x1000)) return false;
+    volatile uint32_t *channel = gChannel.va;
+    channel[4] = value;   // WDATA0
+    __asm__ volatile("dsb osh" ::: "memory");
+    channel[0] = uint32_t(address) << 4;   // EXT_WRITEL
+    __asm__ volatile("dsb osh" ::: "memory");
+    for (unsigned i = 0; i < 1000; ++i) {
+        const uint32_t status = channel[2];
+        if (status & 1) return !(status & 0xe);
+        IODelay(1);
+    }
+    return false;
+}
+
 // The original HID family, its event driver, then NativeHidInput on the IOHIDResource service, as UniXNU-sheng's
 // HidInputProbe.cpp starts it.
 bool startHidDevice() {
@@ -133,9 +149,23 @@ bool startHidDevice() {
         fail(5);
         return false;
     }
+    // The touch device: a separate built-in digitizer service, as the reference's SweetHIDTouch (bluetouch=0: none).
+    unsigned touch = 1;
+    PE_parse_boot_argn("bluetouch", &touch, sizeof touch);
+    if (touch) {
+        IOService *digitizer = native_hid_touch_allocate();
+        const bool touchValid = digitizer && digitizer->metaCast("IOHIDDevice") && digitizer->init();
+        const bool touchAttached = touchValid && digitizer->attach(resource);
+        if (touchAttached && digitizer->start(resource)) {
+            blueline_keys_state[4] = blueline_keys_state[4] | (1 << 8);
+        } else {
+            if (touchAttached) digitizer->detach(resource);
+            OSSafeReleaseNULL(digitizer);
+        }
+    }
     resource->release();
     blueline_keys_state[0] = 5;
-    IOLog("BluelineButtons: HID device started\n");
+    IOLog("BluelineButtons: HID devices started\n");
     return true;
 }
 
@@ -144,18 +174,25 @@ void buttonsThread(void *, wait_result_t) {
     blueline_keys_state[1] = int32_t(version);
     if (version < 0x50000000u || version >= 0x70000000u || !count || count > 512) {fail(1); return;}
     gPon = findApid(kPonPpid, count);
-    blueline_keys_state[2] = int32_t(gPon);
-    IOLog("BluelineButtons: arbiter %#x, %u APIDs, PON APID %u\n", version, count, gPon);
+    gGpio = findApid(kGpio6Ppid, count);
+    unsigned volumeUp = 1;
+    PE_parse_boot_argn("bluevolup", &volumeUp, sizeof volumeUp);
+    if (volumeUp && gGpio != kNoApid) gVolumeUp = writeByte(gGpio, kGpioPull, 0x00);
+    blueline_keys_state[2] = int32_t(gPon | gGpio << 16 | uint32_t(gVolumeUp) << 31);
+    IOLog("BluelineButtons: arbiter %#x, %u APIDs, PON APID %u, GPIO 6 APID %u, volume up %s\n", version, count, gPon, gGpio,
+          gVolumeUp ? "on" : "off");
     if (gPon == kNoApid) {fail(1); return;}
     const bool hid = startHidDevice();
     if (hid) blueline_keys_state[0] = 6;
     uint32_t pressed = 0;
     for (;;) {
-        uint8_t status = 0;
+        uint8_t status = 0, gpio = 1;
+        if (gVolumeUp && !readByte(gGpio, kGpioStatus1, &gpio)) gpio = 1;
         if (!readByte(gPon, kPonRtSts, &status)) {
             blueline_keys_state[7] = blueline_keys_state[7] + 1;
         } else {
-            const uint32_t now = (status & kPowerBit ? kReportPower : 0) | (status & kResinBit ? kReportVolumeDown : 0);
+            const uint32_t now = (status & kPowerBit ? kReportPower : 0) | (status & kResinBit ? kReportVolumeDown : 0) |
+                                 (gVolumeUp && !(gpio & 1) ? kReportVolumeUp : 0);
             if (now != pressed) {
                 pressed = now;
                 blueline_keys_state[5] = blueline_keys_state[5] + 1;
@@ -185,4 +222,5 @@ extern "C" void blueline_buttons_start(void) {
     thread_t thread = nullptr;
     if (kernel_thread_start(buttonsThread, nullptr, &thread) == KERN_SUCCESS) thread_deallocate(thread);
     else fail(1);
+    blueline_touch_start();
 }

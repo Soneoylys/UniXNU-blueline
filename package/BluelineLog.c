@@ -25,6 +25,7 @@ extern volatile uint32_t blueline_gpu_state[8] __attribute__((weak_import));
 extern volatile uint32_t blueline_display_state[12] __attribute__((weak_import));
 extern volatile uint64_t native_gop_gpu_completions __attribute__((weak_import));
 extern volatile int32_t blueline_keys_state[8] __attribute__((weak_import));
+extern volatile int32_t blueline_touch_state[8] __attribute__((weak_import));
 extern volatile uint32_t blueline_kick_state[12] __attribute__((weak_import));
 // ArmCpu (drivers/ArmCpu): per logical core architectural timer interrupts and SGI 0 (IPIs) taken, IPIs sent.
 extern volatile uint32_t armcpu_core_timer[8] __attribute__((weak_import));
@@ -116,6 +117,11 @@ static void compose(char *out, size_t cap, const char *why, unsigned now) {
     for (unsigned i = 0; i < 8; ++i) ADD(" %u", armcpu_core_sgi[i]);
     ADD("\n");
   }
+  if (&blueline_touch_state)
+    ADD("[touch] stage %d id %08x rpmh %d start %08x events %d errors %d down %x reports %d
+", blueline_touch_state[0],
+        blueline_touch_state[1], blueline_touch_state[2], blueline_touch_state[3], blueline_touch_state[4], blueline_touch_state[5],
+        blueline_touch_state[6], blueline_touch_state[7]);
   if (&blueline_kick_state) {
     ADD("[kick] last %u |", blueline_kick_state[0]);
     for (unsigned i = 1; i < 12; ++i) ADD(" %u", blueline_kick_state[i]);

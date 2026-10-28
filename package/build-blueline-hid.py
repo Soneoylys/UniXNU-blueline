@@ -171,10 +171,13 @@ def compile_cpp(src, obj):
     return obj
 
 
-# The board's keys as Apple's built-in buttons (run 41: the same bits inside a keyboard collection reached the event driver,
-# 38 reports, and backboardd did nothing). The 22H384 IOHIDEventDriver personality "HID Buttons" matches a Telephony (0x0b)
-# / Phone (1) device; its report 2 keeps the Consumer usages and bit layout NativeHidInput sends (Menu, Power, Volume
-# Increment, Volume Decrement), and the device is marked Built-In. No keyboard collection, so iPadOS sees no hardware keyboard.
+# The services of the reference port (refs/pixel3-ios on ios-sweet's SweetHID, refs/ios-flame 0058): the keys are one
+# built-in service with primary usage Consumer (0x0c) / Consumer Control (1) sending Consumer Menu, Power, Volume Increment and
+# Volume Decrement; touch is a separate built-in Digitizer / Touch Screen service. Here both are NativeHidInput devices on the
+# original IOHIDFamily-2115. Its only IOHIDEventDriver personality for such devices is "Peppy Touch Display" (DeviceUsagePairs
+# Consumer Control, Transport FIFO), so both report FIFO, and the touch device carries an unused Consumer Control collection
+# after its digitizer (the digitizer stays its primary usage). Runs 41/42 (keyboard and Telephony collections) were not seen
+# by backboardd. The edge-gesture dispatch wrapper uses IOHIDFamily-2031 vtable slots and stays off until 2115's are checked.
 source = (hid / 'NativeHidInput.cpp').read_text()
 keyboard = '''static const unsigned char descriptor[]={
     0x05,0x01,0x09,0x06,0xa1,0x01,0x85,0x01,
@@ -188,13 +191,21 @@ keyboard = '''static const unsigned char descriptor[]={
     0x75,0x04,0x95,0x01,0x81,0x03,0xc0
 };'''
 buttons = '''static const unsigned char descriptor[]={
-    0x05,0x0b,0x09,0x01,0xa1,0x01,0x85,0x02,
-    0x05,0x0c,0x09,0x40,0x09,0x30,0x09,0xe9,0x09,0xea,0x15,0x00,0x25,0x01,
+    0x05,0x0c,0x09,0x01,0xa1,0x01,0x85,0x02,
+    0x09,0x40,0x09,0x30,0x09,0xe9,0x09,0xea,0x15,0x00,0x25,0x01,
     0x75,0x01,0x95,0x04,0x81,0x02,
     0x75,0x04,0x95,0x01,0x81,0x03,0xc0
 };'''
+touch_end = '    0x09,0x54,0x75,0x08,0x95,0x01,0x15,0x00,0x26,0xff,0x00,0x81,0x02,0xc0\n};'
+touch_end_new = ('    0x09,0x54,0x75,0x08,0x95,0x01,0x15,0x00,0x26,0xff,0x00,0x81,0x02,0xc0,\n'
+                 '    0x05,0x0c,0x09,0x01,0xa1,0x01,0x85,0x04,0x09,0x30,0x15,0x00,0x25,0x01,0x75,0x01,0x95,0x01,0x81,0x02,\n'
+                 '    0x75,0x07,0x95,0x01,0x81,0x03,0xc0\n};')
 built_in = '        if(touchOnly||touchEnabled){setProperty("Built-In",true);'
-for old, new in ((keyboard, buttons), (built_in, '        setProperty("Built-In",true);\n' + built_in)):
+for old, new in ((keyboard, buttons), (built_in, '        setProperty("Built-In",true);\n' + built_in),
+                 (touch_end, touch_end_new),
+                 ('return OSString::withCString(touchOnly?"SPI":"Virtual");', 'return OSString::withCString("FIFO");'),
+                 ('            if(driver && (touchEnabled || touchOnly))edge::install(driver);',
+                  '            if(driver && false)edge::install(driver);')):
     if source.count(old) != 1:
         fail('ShengHidInput source edit does not apply once')
     source = source.replace(old, new)
@@ -205,6 +216,7 @@ wrap_dir.mkdir(exist_ok=True)
     f'#include "{out / "NativeHidInput.cpp"}"\n__asm__(".globl \\"__GLOBAL__sub_I_NativeHidInput.cpp\\"");\n')
 hid_obj = compile_cpp(wrap_dir / 'NativeHidInput.cpp', out / 'NativeHidInput.o')
 buttons_obj = compile_cpp(here / 'BluelineButtons.cpp', out / 'BluelineButtons.o')
+touch_obj = compile_cpp(here / 'BluelineTouch.cpp', out / 'BluelineTouch.o')
 
 # 4. The compiled vtable: exactly 207 entries, owned entries a subset of the qualified ones.
 raw = hid_obj.read_bytes()
@@ -286,11 +298,11 @@ def stage_late(obj, initializer):
 hid_late = stage_late(hid_obj, '__GLOBAL__sub_I_NativeHidInput.cpp')
 archive = out / 'libBluelineHid.a'
 archive.unlink(missing_ok=True)
-subprocess.run(['xcrun', 'ar', 'rcs', str(archive), str(hid_late), str(buttons_obj), str(out / 'hid-original-bindings.o')],
+subprocess.run(['xcrun', 'ar', 'rcs', str(archive), str(hid_late), str(buttons_obj), str(touch_obj), str(out / 'hid-original-bindings.o')],
                check=True)
 sha = lambda path: hashlib.sha256(Path(path).read_bytes()).hexdigest()
 (out / 'build-report.json').write_text(json.dumps(dict(
-    source_sha256={str(s): sha(s) for s in (hid / 'NativeHidInput.cpp', here / 'BluelineButtons.cpp')},
+    source_sha256={str(s): sha(s) for s in (hid / 'NativeHidInput.cpp', here / 'BluelineButtons.cpp', here / 'BluelineTouch.cpp')},
     generated_abi_sha256=sha(out / 'OriginalHidDeviceABI.h'), kernel=str(a.kernel), kernel_sha256=sha(a.kernel),
     archive_sha256=sha(archive), bindings={n: hex(v - SHIFT) for n, v in bindings.items()}, owned_entries=owned,
     hardware_qualified=False), indent=2) + '\n')
