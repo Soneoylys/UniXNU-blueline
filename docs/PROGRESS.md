@@ -1868,3 +1868,19 @@ Run 46b: the same kernel 37, payload rebuilt with `--trust-cache ~/blueline/ios1
 image `blueline-unixnu-mu-simplefb-xnu37b-swrender-8cpu.img` b4b1485d010e7c1ec8cc0a215a0b613223b36821596e5cab71c12c99ff35799a,
 archive build/share/blueline-run46b-kernel37-swrender.7z 200fa5c4…60f4e3.
 Rule: a payload always needs a trust cache; without the GPU plugin, use the original 22H384 bundle.
+
+### Run 46b result (2026-10-28): eight-core stackshot panic; IPI fix written, not built
+
+Photo: `thread wait info count mismatch … expected 6, found 7 @kern_stackshot.c:4971`, exec=UARPUpdaterServiceDFU (run 43's panic again).
+Root cause (from run 43's `[cpu]` line and xnu source): ArmCpu sends IPIs as SGI 0, and no SGI 0 ever arrived (sgi 0 on every
+core, even each core's own start-up self-IPI). XNU clears a core's SIGPdisabled only when that core takes its first IPI
+(osfmk/arm/cpu_common.c cpu_signal_handler_internal), and cpu_signal() returns without sending while it is set. So every IPI
+after boot was dropped (`ipi sent` stayed 8, the 8 self-IPIs): no reschedule IPIs, no TLB/xcall IPIs, and the stackshot's
+SIGPdebug never halted the other cores. Reference: pixel3-ios/ios-sweet use SGI 1 (`SWEET_IPI_SGI 1`, refs/ios-flame 0004/0018)
+and verified it on all 8 cores of this phone (refs/pixel3-ios docs/LOG.md "SGI1 OK"); their GIC setup otherwise matches ArmCpu's.
+Written, NOT built or tested:
+- UniXNU-sdm845-common 698dc78 (local, not pushed): ArmCpu boot arg `armcpu-ipi-sgi=N` (default 0) for send, self-IPI and dispatch.
+- board.toml: `armcpu-ipi-sgi=1`.
+- package/BluelineLog.c: runs ArmCpu's armcpu_sgi_selfprobe once at log start (which SGIs 0..15 become pending as Group 1/0
+  on that core), resends one IPI after it, and logs `[sgi] probe …`. BluelineLog.c is built by build-blueline-gpu.py, so
+  the archive script has to run again.

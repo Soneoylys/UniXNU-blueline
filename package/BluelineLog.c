@@ -27,10 +27,16 @@ extern volatile uint64_t native_gop_gpu_completions __attribute__((weak_import))
 extern volatile int32_t blueline_keys_state[8] __attribute__((weak_import));
 extern volatile int32_t blueline_touch_state[8] __attribute__((weak_import));
 extern volatile uint32_t blueline_kick_state[12] __attribute__((weak_import));
-// ArmCpu (drivers/ArmCpu): per logical core architectural timer interrupts and SGI 0 (IPIs) taken, IPIs sent.
+// ArmCpu (drivers/ArmCpu): per logical core architectural timer interrupts and IPI SGIs (armcpu-ipi-sgi) taken, IPIs sent.
 extern volatile uint32_t armcpu_core_timer[8] __attribute__((weak_import));
 extern volatile uint32_t armcpu_core_sgi[8] __attribute__((weak_import));
 extern volatile uint64_t armcpu_ipi_sent __attribute__((weak_import));
+// ArmCpu's self-probe: which SGIs 0..15 sent to the calling core become pending as Group 1 (out[1]) or Group 0 (out[2]); run once at
+// log start. It acknowledges what it sees, so an IPI pending at that moment is swallowed: armcpu_ipi_selftest resends one afterwards.
+extern void armcpu_sgi_selfprobe(uint64_t *out) __attribute__((weak_import));
+extern void armcpu_ipi_selftest(uint64_t aff) __attribute__((weak_import));
+static uint64_t sgi_probe[10];
+static int sgi_probed;
 extern volatile uint32_t native_hid_input_events[8] __attribute__((weak_import));
 extern volatile int32_t native_hid_input_results[8] __attribute__((weak_import));
 extern size_t blueline_gpu_status_text(char *, size_t) __attribute__((weak_import));
@@ -117,6 +123,10 @@ static void compose(char *out, size_t cap, const char *why, unsigned now) {
     for (unsigned i = 0; i < 8; ++i) ADD(" %u", armcpu_core_sgi[i]);
     ADD("\n");
   }
+  if (sgi_probed)
+    ADD("[sgi] probe mpidr %llx g1 %llx g0 %llx pmr %llx igrpen1 %llx ctlr %llx rpr %llx\n", (unsigned long long)sgi_probe[0],
+        (unsigned long long)sgi_probe[1], (unsigned long long)sgi_probe[2], (unsigned long long)sgi_probe[3],
+        (unsigned long long)sgi_probe[4], (unsigned long long)sgi_probe[6], (unsigned long long)sgi_probe[7]);
   if (&blueline_touch_state)
     ADD("[touch] stage %d id %08x rpmh %d start %08x events %d errors %d down %x reports %d\n", blueline_touch_state[0],
         blueline_touch_state[1], blueline_touch_state[2], blueline_touch_state[3], blueline_touch_state[4], blueline_touch_state[5],
@@ -252,6 +262,11 @@ void blueline_log_start(void) {
   boot_log_buffer = (uint8_t *)IOMallocAligned(LogMsgBlocks * LogBlock, LogBlock);
   boot_log_lock = IOLockAlloc();
   if (!boot_log_buffer || !boot_log_lock) return;
+  if (&armcpu_sgi_selfprobe && &armcpu_ipi_selftest) {
+    armcpu_sgi_selfprobe(sgi_probe);
+    armcpu_ipi_selftest(sgi_probe[0]);
+    sgi_probed = 1;
+  }
   thread_t thread;
   if (kernel_thread_start(writer, 0, &thread) == KERN_SUCCESS) thread_deallocate(thread);
 }

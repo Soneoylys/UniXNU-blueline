@@ -119,6 +119,7 @@ kernel_args = [
   "bluecpufreq=1",                   # SDM845 OSM: highest regular LUT level
   "sdm845-fault-loop=1",             # pixel3-ios 0117: repeated successful write-fault recovery
   "armcpu-self-ipi=1",                # as polaris and sirius
+  "armcpu-ipi-sgi=1",                 # IPIs on SGI 1, as pixel3-ios/ios-sweet (SWEET_IPI_SGI); SGI 0 reached no core (run 43)
   "armcpu-timer-intid=19",            # SDM845 EL1 virtual timer is PPI 3 (INTID 19), not PPI 27 (dts/sdm845.dtsi)
   "native-ufs-root=1",                # root from the userdata image (OS and SystemOS windows); run 20 was probe 10
   "debug-rootauth-bypass=1",          # post-mount bring-up gate; also requires CONFIG_XNU_DEBUG_ROOTAUTH_BYPASS=y
