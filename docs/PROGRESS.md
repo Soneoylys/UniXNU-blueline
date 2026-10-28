@@ -1312,3 +1312,13 @@ Kernel 22 b8dde57857a912a6ce112d93fef970456dc87deb2e7c8977a8354f5d6a41dc10 (the 
 by the rebuild; the original k21 is build/kernel/ipados-18/kernel-k21.macho), payload 912e4345…c822, boot image
 `build/boot/blueline-unixnu-mu-simplefb-xnu22-gpu.img` 39beffa4f5a7ffaab685276bc0e6b1a4f08bca06772aba3caf74b52e3c18488d,
 archive `build/share/blueline-run31-kernel22-gpu.7z` 12b2a08c659a65a527437c7d85065a05d17f700a180d9867cc90d8b56cb690e0.
+
+### Run 30 display mode: not a problem (2026-10-28)
+
+The `Display 1 current mode (16383 x 16383)` line is QuartzCore (22H384 shared cache, format string 0x184686672, logged
+at 0x1844b51a8): it unpacks a mode ID as width = id & 0x3fff, height = (id >> 14) & 0x3fff, so 16383x16383 is an empty
+(all-ones) current-mode ID, as for a built-in panel without a mode list. The same run 30 log then shows backboardd using
+the real display: `StartWindowServer: initial main screen size:{1080, 2160} scale:3`, `main display width 1080 height
+2160 framebuffer width 1080 height 2160 scale 3`, `layer position 540 1080 bounds 0 0 1080 2160`. No change needed;
+the iPhone-sized scale 3 is in effect. Tools: scratchpad dsc_find.py / dsc_xref.py (direct subcache search; Xcode's
+dsc_extractor does not read this cache format).
