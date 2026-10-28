@@ -1462,3 +1462,27 @@ release (18), `GPU ready: CP fence + zap ok`, publish (19), Metal (20/21), `Meta
 `ph 19 r gpu+2018`: the first GPU register access after boot release, a read of CP_RB_RPTR (0x806). The display counter
 showed 0 frames at the photo (`disp 0/0`, log round 83). Whether the system kept running past that read is the open
 question (a CPU read of a GX register while the GMU has collapsed GX would stall the bus on the single CPU).
+
+### Run 38 readback and prepared run 39 (2026-10-28)
+
+UFS log (boot 3033872e, 669 s, 376 rounds, no errors): the GPU driver log ring holds the whole bring-up through `Metal
+accelerator registered` and nothing after. Display words at the end: 4 swaps validated, 0 refused, 3 GPU offers refused,
+4 transfers (one ended 0xe00002d8), 0 retired, 0 GPU completions. NativeGOPPresenter takes an offer only while a GPU client
+waits in waitSwap. That client is the Metal plugin's scanout thread in backboardd (GpuScanoutClient.h), started only after
+the plugin publishes its device. /var (`readback.sh 38`, boot 852092EE) shows backboardd at 106.8 s:
+`native-metal: unexpected _MTLDevice ABI` (twice). The bridge pinned iPadOS 17.7.11's `_MTLDevice` instance size, 536 bytes.
+22H384's is 600 bytes (superclass NSObject), read from the shared cache's class_ro with the new
+`~/blueline/ios18-tools/objc_class_size.py` (Xcode 26's dsc_extractor crashes on this cache, exit 139). The `Sandbox:
+backboardd deny iokit-open-user-client AGXDeviceUserClient` lines are the plugin's marker channel (Gpu::mark opens type
+0x4147xxxx, which the driver reads in newUserClient before the sandbox check) and are expected.
+
+Run 39 (kernel 31 30380204069310d376d173bf0ced1f6dfa2f137edf31ccfb90d11f6e8b420af3):
+- Mac UniXNU `drivers/AdrenoMetal` d49f74c (local): the guard accepts 536 or 600. The plugin was rebuilt; CDHashes are
+  plugin 5bbc1760…ab86, adrenoprobed 0374d2ad…1ec1, Turnip 5c058b63…44f5. The trust bundle is
+  857dd4fc28ef197bcf2f26a068a03e8d38ce21d97479bb0fd6291901abc4ab14, allowed in the profile (Mac UniXNU 164d863, local). The GPU
+  addon has 9 files, 12,172,664 bytes.
+- `package/BluelineLog.c`: each slot now carries the plugin's markers, report lines, other clients' failure lines, the
+  per-process open records and the bridge's telemetry rows (NativeAdrenoPublish.cpp globals).
+Payload e603d3e0…5044, boot image `build/boot/blueline-unixnu-mu-simplefb-xnu31-gpu.img`
+bf43e4dda54e8fcc39a8bcc6227e9220656bee1f421b0161ab5b819c92e53d8b, archive `build/share/blueline-run39-kernel31-gpu.7z`
+db8c1bf080346373256fa7346774ca5f2a7554c878099493ba9f66de004282b7.

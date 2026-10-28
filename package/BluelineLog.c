@@ -25,6 +25,22 @@ extern volatile uint32_t blueline_gpu_state[8] __attribute__((weak_import));
 extern volatile uint32_t blueline_display_state[12] __attribute__((weak_import));
 extern volatile uint64_t native_gop_gpu_completions __attribute__((weak_import));
 extern size_t blueline_gpu_status_text(char *, size_t) __attribute__((weak_import));
+// What the Metal plugin told the driver (UniXNU drivers/Adreno740/NativeAdrenoPublish.cpp; same layouts): its progress markers (open types
+// 0x4147xxxx, each also a sandbox "deny iokit-open-user-client" line in the system log), its result lines, other processes' failure lines,
+// the per-process open records and the bridge's telemetry rows.
+struct NativeAdrenoMetalDiag {
+  uint32_t opens, busy, bad, closes, reports, property_reads, foreign_opens, foreign_type, name_reads, calls, last_selector, last_status, ext_entries,
+      ext_selector, ext_status, ext_in, ext_out, tunnel_calls, probes, sel_bits[8], mb_maps, mb_calls, marks_total, marks[16], chk_macf, chk_res,
+      chk_type, type_pass_lo, type_pass_hi, attach_status, inflight, inflight_since_calls, forced_unmaps;
+  char opener[3][17], reader[3][17], name_reader[17], starter[3][17], report[64], report2[64];
+  uint32_t grants;
+};
+struct NativeAdrenoClientText {char name[20]; char text[64];};
+struct NativeAdrenoClientRecord {char name[20]; uint32_t opens, refused, closes, slot, peak_mib, last_refusal;};
+extern struct NativeAdrenoMetalDiag native_adreno_metal_diag __attribute__((weak_import));
+extern char native_adreno_metal_rows[48][96] __attribute__((weak_import));
+extern struct NativeAdrenoClientText native_adreno_client_text[4] __attribute__((weak_import));
+extern struct NativeAdrenoClientRecord native_adreno_client_log[8] __attribute__((weak_import));
 
 int blueline_log_checkpoint(const char *why);
 void blueline_log_start(void);
@@ -89,6 +105,30 @@ static void compose(char *out, size_t cap, const char *why, unsigned now) {
     ADD("[data] state %u writes %llu errors %llu\n", native_data_persist_state,
         &native_data_persist_writes ? (unsigned long long)native_data_persist_writes : 0ull,
         &native_data_persist_errors ? (unsigned long long)native_data_persist_errors : 0ull);
+  if (&native_adreno_metal_diag) {
+    const struct NativeAdrenoMetalDiag *d = &native_adreno_metal_diag;
+    ADD("[plugin] opens %u busy %u bad %u closes %u calls %u last sel %u status 0x%x grants %u marks %u:", d->opens, d->busy, d->bad,
+        d->closes, d->calls, d->last_selector, d->last_status, d->grants, d->marks_total);
+    const uint32_t total = d->marks_total, shown = total < 16 ? total : 16;
+    for (uint32_t i = total - shown; i < total; ++i) ADD(" %x", d->marks[i & 15]);
+    ADD("\n[plugin] starter %.17s %.17s opener %.17s %.17s name_reader %.17s\n", d->starter[0], d->starter[1], d->opener[0], d->opener[1],
+        d->name_reader);
+    ADD("[plugin] report %.64s\n[plugin] report2 %.64s\n", d->report, d->report2);
+  }
+  if (&native_adreno_client_text)
+    for (unsigned i = 0; i < 4; ++i)
+      if (native_adreno_client_text[i].name[0])
+        ADD("[client] %.20s: %.64s\n", native_adreno_client_text[i].name, native_adreno_client_text[i].text);
+  if (&native_adreno_client_log)
+    for (unsigned i = 0; i < 8; ++i)
+      if (native_adreno_client_log[i].name[0]) {
+        const struct NativeAdrenoClientRecord *c = &native_adreno_client_log[i];
+        ADD("[opens] %.20s opens %u refused %u closes %u slot %u peak %u MiB last refusal 0x%x\n", c->name, c->opens, c->refused, c->closes,
+            c->slot, c->peak_mib, c->last_refusal);
+      }
+  if (&native_adreno_metal_rows)
+    for (unsigned i = 0; i < 48; ++i)
+      if (native_adreno_metal_rows[i][0]) ADD("[row %u] %.96s\n", i, native_adreno_metal_rows[i]);
   if (&blueline_gpu_status_text && at + 2 < cap) {
     ADD("[status]\n");
     at += blueline_gpu_status_text(out + at, cap - at);
