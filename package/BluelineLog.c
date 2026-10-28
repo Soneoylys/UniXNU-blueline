@@ -118,8 +118,7 @@ static void compose(char *out, size_t cap, const char *why, unsigned now) {
     ADD("\n");
   }
   if (&blueline_touch_state)
-    ADD("[touch] stage %d id %08x rpmh %d start %08x events %d errors %d down %x reports %d
-", blueline_touch_state[0],
+    ADD("[touch] stage %d id %08x rpmh %d start %08x events %d errors %d down %x reports %d\n", blueline_touch_state[0],
         blueline_touch_state[1], blueline_touch_state[2], blueline_touch_state[3], blueline_touch_state[4], blueline_touch_state[5],
         blueline_touch_state[6], blueline_touch_state[7]);
   if (&blueline_kick_state) {
