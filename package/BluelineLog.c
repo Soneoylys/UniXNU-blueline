@@ -31,6 +31,7 @@ extern volatile uint32_t blueline_kick_state[12] __attribute__((weak_import));
 extern volatile uint32_t armcpu_core_timer[8] __attribute__((weak_import));
 extern volatile uint32_t armcpu_core_sgi[8] __attribute__((weak_import));
 extern volatile uint64_t armcpu_ipi_sent __attribute__((weak_import));
+extern volatile uint32_t armcpu_gic_boot[8] __attribute__((weak_import));
 extern volatile uint32_t native_hid_input_events[8] __attribute__((weak_import));
 extern volatile int32_t native_hid_input_results[8] __attribute__((weak_import));
 extern size_t blueline_gpu_status_text(char *, size_t) __attribute__((weak_import));
@@ -115,6 +116,12 @@ static void compose(char *out, size_t cap, const char *why, unsigned now) {
     for (unsigned i = 0; i < 8; ++i) ADD(" %u", armcpu_core_timer[i]);
     ADD(" | sgi");
     for (unsigned i = 0; i < 8; ++i) ADD(" %u", armcpu_core_sgi[i]);
+    ADD("\n");
+  }
+  // ArmCpu's boot-core GIC readback: IGROUPR0, ISENABLER0, GICD_CTLR, GICD_TYPER, IGRPMODR0, ICC_PMR, ICC_IGRPEN1, ICC_SRE.
+  if (&armcpu_gic_boot) {
+    ADD("[gic]");
+    for (unsigned i = 0; i < 8; ++i) ADD(" %x", armcpu_gic_boot[i]);
     ADD("\n");
   }
   if (&blueline_touch_state)

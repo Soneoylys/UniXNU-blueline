@@ -2118,3 +2118,22 @@ are preserved and host-checked; display/input need the run-48 capture; GPU is de
 then capture UFS through TWRP before another XNU boot. Read passive `[cpu]` counts and a new boot ID; absence of the old
 `[sgi] probe` line is intentional. If a watchdog recurs, collect Android boot reasons before recovery and retain the
 last screen/timing; do not re-enable the probe or keep repeating the failing candidate.
+
+### Run 48 panic and run 49 prepared (2026-10-28): SPI IPIs
+
+Run 48 (kernel 39, the other agent's build without the SGI self-probe) got past run 47's watchdog reset. It then panicked with a
+kernel data abort, a write to address 0 (esr 0x96000045, far 0), in `exec=privacyaccountingd`. Symbolized against kernel 39:
+`stackshot_thread_turnstileinfo` (kern_stackshot.c:6127) ← `kdp_stackshot_record_task` ← `stackshot_cpu_work_on_queue` ←
+`stackshot_cpu_do_work` ← `kdp_stackshot_kcdata_format` ← `do_stackshot` ← `handle_debugger_trap` ← `kdp_trap` ←
+`DebuggerTrapWithState`. The first pass over the task counted no turnstile-waiting thread (no buffer reserved, array NULL),
+the second pass found one and wrote through NULL (x1 = 0). So a core was still running during the stackshot, the same race as
+runs 28, 43 and 46b: SGI 1 did not halt every core either. Neither pixel3-ios nor ios-flame handles stackshots (older kernel).
+Run 49 (kernel 40): sheng's software-pended SPI IPIs (`armcpu-spi-ipi=1`). ArmCpu (UniXNU-sdm845-common, pushed; feeds.toml
+pinned) gains `armcpu-spi-ipi-base`, because the default INTID 1008 is not implemented on a 960-line Qualcomm GIC
+(ios-sweet: GICD_TYPER 0x007B041D). Blueline uses 732 (SPIs 700..707; the stock Pixel 3 DT uses SPIs up to 608, the PDC up to
+636). The UFS log gains `[gic]` (the boot core's GIC readback, including GICD_TYPER at index 3).
+Kernel 40 7a88ff38…3182, eight-core payload d92b627d…568b (trust 26ed8386…), boot image
+`blueline-unixnu-mu-simplefb-xnu40-swrender-8cpu.img` f4bb1f4cc3b78909a1debcaf7fa06a1a803b05c811554f3343e6270540a8deb3, archive
+`build/share/blueline-run49-kernel40-swrender.7z` b536f353e68f18fe63ad0341912a0c940bd0d35f265e4e43def45b2c54c67a8f
+(Mac ~/blueline/run49-build.sh).
+In its dump, check `[gic]` GICD_TYPER (ITLinesNumber = bits 4:0), `[cpu]` IPI counts above 0 on all cores, and whether the stackshot panic is gone.

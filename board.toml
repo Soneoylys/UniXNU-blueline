@@ -120,6 +120,8 @@ kernel_args = [
   "sdm845-fault-loop=1",             # pixel3-ios 0117: repeated successful write-fault recovery
   "armcpu-self-ipi=1",                # as polaris and sirius
   "armcpu-ipi-sgi=1",                 # IPIs on SGI 1, as pixel3-ios/ios-sweet (SWEET_IPI_SGI); SGI 0 reached no core (run 43)
+  "armcpu-spi-ipi=1",                 # run 49: IPIs as software-pended SPIs (sheng's path); SGI 1 still left a core running (run 48 stackshot panic)
+  "armcpu-spi-ipi-base=732",          # SPIs 700..707: implemented (960-line GIC) and unused (stock DT up to SPI 608, PDC up to 636)
   "armcpu-timer-intid=19",            # SDM845 EL1 virtual timer is PPI 3 (INTID 19), not PPI 27 (dts/sdm845.dtsi)
   "native-ufs-root=1",                # root from the userdata image (OS and SystemOS windows); run 20 was probe 10
   "debug-rootauth-bypass=1",          # post-mount bring-up gate; also requires CONFIG_XNU_DEBUG_ROOTAUTH_BYPASS=y
