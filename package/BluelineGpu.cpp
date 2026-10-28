@@ -108,6 +108,29 @@ unsigned bootArg(const char *name, unsigned fallback) {
     PE_parse_boot_argn(name, &value, sizeof value);
     return value;
 }
+// Every driver log line goes to IOLog and to this ring, which each UFS log slot carries (statusText): the kernel message
+// buffer is flooded by user space within seconds (run 35 lost the GMU context report that way).
+char gLog[12288];
+size_t gLogLen;
+void gpuLog(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+void gpuLog(const char *fmt, ...) {
+    char line[256];
+    va_list ap;
+    va_start(ap, fmt);
+    int n = vsnprintf(line, sizeof line, fmt, ap);
+    va_end(ap);
+    if (n < 0) return;
+    size_t len = strnlen(line, sizeof line - 1);
+    IOLog("BluelineGpu: %s", line);
+    if (gLogLen + len > sizeof gLog) {   // drop the oldest half, at a line start
+        const char *cut = static_cast<const char *>(memchr(gLog + sizeof gLog / 2, '\n', gLogLen - sizeof gLog / 2));
+        const size_t keep = cut ? gLogLen - size_t(cut + 1 - gLog) : 0;
+        memmove(gLog, gLog + gLogLen - keep, keep);
+        gLogLen = keep;
+    }
+    memcpy(gLog + gLogLen, line, len);
+    gLogLen += len;
+}
 // On-screen status (blueline-gpu-status, default 1): one white console-font line per stage and the failing stage's
 // registers, drawn into the lower part of the GOP framebuffer (below the loader's text) until the first GPU-copied frame
 // replaces them, so a photo shows how far the GPU got. Text only, no bars or blocks. Each line is drawn and written to the
@@ -144,7 +167,7 @@ void screen(const char *fmt, ...) {
     }
     if (!gStatusCount) gStatusCount = 1;   // line 0 is the display summary
     strlcpy(gStatus[gStatusCount++], line, sizeof gStatus[0]);
-    IOLog("BluelineGpu: | %s\n", line);
+    gpuLog("| %s\n", line);
     drawAll();
     if (&blueline_log_checkpoint) blueline_log_checkpoint(line);
 }
@@ -179,7 +202,7 @@ void statusThread(void *, wait_result_t) {
         IOSleep(2000);
     }
 }
-// The status lines, one per row (BluelineLog.c's text slot, through blueline_gpu_status_text).
+// The status lines, one per row, then the driver log ring (BluelineLog.c's text slot, through blueline_gpu_status_text).
 size_t statusText(char *out, size_t cap) {
     size_t at = 0;
     for (unsigned row = 0; row < gStatusCount && at + kCols + 2 < cap; ++row) {
@@ -187,6 +210,13 @@ size_t statusText(char *out, size_t cap) {
         memcpy(out + at, gStatus[row], n);
         at += n;
         out[at++] = '\n';
+    }
+    static const char kHeading[] = "[gpu log]\n";
+    if (at + sizeof kHeading + gLogLen < cap) {
+        memcpy(out + at, kHeading, sizeof kHeading - 1);
+        at += sizeof kHeading - 1;
+        memcpy(out + at, gLog, gLogLen);
+        at += gLogLen;
     }
     if (at < cap) out[at] = 0;
     return at;
@@ -217,14 +247,14 @@ void dumpPower() {
     screen("gcc 71004 %x 44038 %x", gcc[0x71004 / 4], gcc[0x44038 / 4]);
     screen("gcc 7100c %x 71018 %x", gcc[0x7100c / 4], gcc[0x71018 / 4]);
     screen("gcc 52000 %x 52004 %x", gcc[0x52000 / 4], gcc[0x52004 / 4]);
-    IOLog("BluelineGpu: gcc 71004 %08x 44038 %08x 7100c %08x 71018 %08x 52000 %08x 52004 %08x\n", gcc[0x71004 / 4],
+    gpuLog("gcc 71004 %08x 44038 %08x 7100c %08x 71018 %08x 52000 %08x 52004 %08x\n", gcc[0x71004 / 4],
           gcc[0x44038 / 4], gcc[0x7100c / 4], gcc[0x71018 / 4], gcc[0x52000 / 4], gcc[0x52004 / 4]);
     if (gState.phase < Sdm845GpuPhaseCx || !gVa[WinGpucc]) return;
     const volatile uint32_t *cc = reinterpret_cast<const volatile uint32_t *>(gVa[WinGpucc]);
     screen("gpucc 106c %x 1540 %x", cc[0x106c / 4], cc[0x1540 / 4]);
     screen("gpucc 1098 %x 109c %x", cc[0x1098 / 4], cc[0x109c / 4]);
     screen("gpucc 1120 %x 1124 %x", cc[0x1120 / 4], cc[0x1124 / 4]);
-    IOLog("BluelineGpu: gpucc 106c %08x 1540 %08x 1098 %08x 109c %08x 1120 %08x 1124 %08x\n", cc[0x106c / 4], cc[0x1540 / 4],
+    gpuLog("gpucc 106c %08x 1540 %08x 1098 %08x 109c %08x 1120 %08x 1124 %08x\n", cc[0x106c / 4], cc[0x1540 / 4],
           cc[0x1098 / 4], cc[0x109c / 4], cc[0x1120 / 4], cc[0x1124 / 4]);
 }
 void stage(uint32_t value, uint32_t status) {
@@ -234,7 +264,7 @@ void stage(uint32_t value, uint32_t status) {
 }
 bool fail(uint32_t at, uint32_t status, const char *what) {
     stage(at, status);
-    IOLog("BluelineGpu: stage %u %s failed: 0x%x\n", at, what, status);
+    gpuLog("stage %u %s failed: 0x%x\n", at, what, status);
     screen("FAIL %u %s: %x", at, what, status);
     return false;
 }
@@ -243,14 +273,14 @@ bool kitFail(uint32_t at, Sdm845GpuStatus status, const char *what) {
     blueline_gpu_state[3] = gState.window;
     blueline_gpu_state[4] = uint32_t(gState.offset);
     blueline_gpu_state[5] = gState.value;
-    IOLog("BluelineGpu: %s: status %d phase %u window %u offset 0x%lx value 0x%x polls %u\n", what, status, gState.phase,
+    gpuLog("%s: status %d phase %u window %u offset 0x%lx value 0x%x polls %u\n", what, status, gState.phase,
           gState.window, (unsigned long)gState.offset, gState.value, gState.polls);
     screen("kit %d ph %u w%u +%lx =%x", status, gState.phase, gState.window, (unsigned long)gState.offset, gState.value);
     dumpPower();
     if (gState.phase == Sdm845GpuPhaseClocks && gVa[WinGcc]) {
         // GPLL0 (Fabia at GCC+0): mode, L, user ctl, opmode, fractional, and the APCS vote register 0x52000.
         const volatile uint32_t *gcc = reinterpret_cast<const volatile uint32_t *>(gVa[WinGcc]);
-        IOLog("BluelineGpu: GPLL0 mode %08x L %08x user %08x opmode %08x frac %08x vote %08x\n", gcc[0], gcc[1], gcc[3],
+        gpuLog("GPLL0 mode %08x L %08x user %08x opmode %08x frac %08x vote %08x\n", gcc[0], gcc[1], gcc[3],
               gcc[0x2c / 4], gcc[0x38 / 4], gcc[0x52000 / 4]);
     }
     return fail(at, uint32_t(status), what);
@@ -307,7 +337,7 @@ bool pickSmmu(const char *who, unsigned &bank, unsigned &slot, unsigned avoidBan
     for (unsigned n = 0; n < smrs && (!smrFree(gVa[WinSmmu], slot) || slot == avoidSlot); ++n) slot = (wantSlot + n + 1) % smrs;
     for (unsigned n = 0; n < banks && (!bankFree(gVa[WinSmmu], bank) || bank == avoidBank); ++n) bank = (wantBank + n + 1) % banks;
     const bool ok = smrFree(gVa[WinSmmu], slot) && slot != avoidSlot && bankFree(gVa[WinSmmu], bank) && bank != avoidBank;
-    IOLog("BluelineGpu: %s SMMU bank %u slot %u (wanted %u/%u; %u banks, %u SMRs)\n", who, bank, slot, wantBank, wantSlot, banks, smrs);
+    gpuLog("%s SMMU bank %u slot %u (wanted %u/%u; %u banks, %u SMRs)\n", who, bank, slot, wantBank, wantSlot, banks, smrs);
     screen("%s smmu bank %u slot %u of %u/%u", who, bank, slot, banks, smrs);
     return ok;
 }
@@ -323,13 +353,13 @@ void smmuSurvey(volatile uint8_t *smmu) {
     const uint32_t id1 = r[0x24 / 4];
     const uint32_t id2 = r[0x28 / 4];
     const uint32_t gfsr = r[0x48 / 4];
-    IOLog("BluelineGpu: SMMU scr0=%08x id0=%08x id1=%08x id2=%08x gfsr=%08x\n", scr0, id0, id1, id2, gfsr);
+    gpuLog("SMMU scr0=%08x id0=%08x id1=%08x id2=%08x gfsr=%08x\n", scr0, id0, id1, id2, gfsr);
     screen("smmu id0 %x id1 %x id2 %x", id0, id1, id2);
     const unsigned smrs = id0 & 0xff;
     for (unsigned i = 0; i < smrs && i < 32; ++i) {
         const uint32_t smr = r[0x800 / 4 + i];
         const uint32_t s2cr = r[0xc00 / 4 + i];
-        if (smr & (1u << 31)) IOLog("BluelineGpu: SMR%u=%08x S2CR%u=%08x (in use)\n", i, smr, i, s2cr);
+        if (smr & (1u << 31)) gpuLog("SMR%u=%08x S2CR%u=%08x (in use)\n", i, smr, i, s2cr);
     }
 }
 
@@ -339,7 +369,7 @@ bool loadCommandDb(BluelineGpuArcInputs &arcs) {
     if (!pointer) return fail(3, 1, "cmd-db pointer map");
     const volatile uint32_t *words = reinterpret_cast<const volatile uint32_t *>(pointer + (kCmdDbPointer & 0xfff));
     const uint64_t base = words[0], bytes = words[1];
-    IOLog("BluelineGpu: cmd-db at 0x%llx, 0x%llx bytes\n", base, bytes);
+    gpuLog("cmd-db at 0x%llx, 0x%llx bytes\n", base, bytes);
     if (!base || (base & 0xfff) || bytes < 144 || bytes > 0x100000) return fail(3, 2, "cmd-db pointer");
     volatile uint8_t *db = mapPhys(base, (bytes + 0xfff) & ~0xfffull, kIOMapInhibitCache, dbMap);
     if (!db) return fail(3, 3, "cmd-db map");
@@ -352,7 +382,7 @@ bool loadCommandDb(BluelineGpuArcInputs &arcs) {
     // Linux cmd-db.c validates only the magic; the parser checks it and the layout, and the version is the one recorded.
     uint32_t version = 0;
     memcpy(&version, gCmdDb, 4);
-    IOLog("BluelineGpu: cmd-db version 0x%x\n", version);
+    gpuLog("cmd-db version 0x%x\n", version);
     Sdm845GpuArcInputs in{};
     const Sdm845GpuDbStatus parsed = Sdm845GpuCommandDbArcInputs(gCmdDb, size_t(bytes), version ? version : 1, &in);
     if (parsed != Sdm845GpuDbSuccess) return fail(3, 0x10 + parsed, "cmd-db parse");
@@ -381,14 +411,27 @@ bool gmuContext() {
     if (ArmSmmu4KBindMmio(&gSmmuMmio, &gSmmuIo) != ArmSmmu4KSuccess) return fail(4, 1, "SMMU MMIO bind");
     const NativeAdrenoGmuSizes sizes = NativeAdrenoGmuA630Sizes(NativeAdrenoGmuContext::TablePages * 4096);
     const IOReturn status = gGmuCtx.bringUp(&gSmmuIo, bank, 1, slot, kGmuSid, nullptr, &report, &sizes);
-    IOLog("BluelineGpu: GMU context bank %u slot %u: step %u status 0x%x program %u/%u route %u/%u ttbr0 0x%llx\n", bank, slot,
+    gpuLog("GMU context bank %u slot %u: step %u status 0x%x program %u/%u route %u/%u ttbr0 0x%llx\n", bank, slot,
           report.step, status, report.program_status, report.program_phase, report.route_status, report.routes_verified,
           report.ttbr0);
-    if (status)
-        screen("step %u prog %u/%u rt %u/%u/%u mis %x", report.step, report.program_status, report.program_phase,
-               report.route_status, report.route_phase, report.routes_verified, report.mismatch);
-    if (status)
-        screen("rb sctlr %x cbar %x smr %x s2cr %x", report.sctlr, report.cbar, report.smr, report.s2cr);
+    if (status) {
+        // Step (NativeAdrenoGmuContext::Step), ArmSmmu4KStatus and phase of program/attach, the fields that differ from
+        // the encoded image (bit 0 CBAR .. 8 SCTLR), and what the bank read back (expected: CBAR 1f300, CBA2R 1,
+        // TCR2 38011 for a 36-bit OAS, MAIR0 ff44, SCTLR 0 until enabled).
+        const ArmSmmu4KContextImage &got = report.image;
+        screen("step %u prog %u/%u wr %u rt %u/%u/%u", report.step, report.program_status, report.program_phase,
+               report.program_writes, report.route_status, report.route_phase, report.routes_verified);
+        screen("mis %x valid %u en %u out %u", report.mismatch, report.program_readback_valid, report.program_enabled,
+               report.output_bits);
+        screen("cbar %x a2r %x mair %x", got.cbar, got.cba2r, got.mair0);
+        screen("tcr %x tcr2 %x sctlr %x", got.tcr, got.tcr2, got.sctlr);
+        screen("ttbr0 %llx", (unsigned long long)got.ttbr0);
+        screen("now sctlr %x cbar %x", report.sctlr, report.cbar);
+        screen("now smr %x s2cr %x", report.smr, report.s2cr);
+        gpuLog("GMU context image cbar %x cba2r %x tcr %x tcr2 %x mair0 %x mair1 %x sctlr %x ttbr0 %llx ttbr1 %llx\n",
+               got.cbar, got.cba2r, got.tcr, got.tcr2, got.mair0, got.mair1, got.sctlr, (unsigned long long)got.ttbr0,
+               (unsigned long long)got.ttbr1);
+    }
     return status ? fail(4, status, "GMU context") : true;
 }
 
@@ -410,7 +453,7 @@ bool gpuContext() {
     const unsigned slots[2] = {slot, 0};
     const uint16_t sids[2] = {kGpuSid, 0};
     const IOReturn status = gGpuCtx.bringUp(&gSmmuIo, bank, 2, slots, sids, nullptr, &report, 1, NativeAdrenoRingA6xx);
-    IOLog("BluelineGpu: GPU context bank %u slot %u: step %u status 0x%x program %u route %u/%u spans %u\n", bank, slot,
+    gpuLog("GPU context bank %u slot %u: step %u status 0x%x program %u route %u/%u spans %u\n", bank, slot,
           report.step, status, report.program_status, report.route_status, report.routes_verified, report.spans);
     if (status) return fail(10, status, "GPU context");
     for (unsigned i = 0; i < GpuBufferCount; ++i) {
@@ -475,11 +518,11 @@ bool zapAndSecure() {
     if (gZapMetadata.publishForDevice(0, metaBytes, true)) return fail(16, 7, "zap metadata publish");
     auto pil = [](uint32_t cmd) {return uint64_t(0x42000000u | (0x02u << 8) | cmd);};
     ScmResult r = scmCall(pil(0x01), 2 | (2u << 6), kGpuPasId, gZapMetadata.spans()[0].physical, 0);
-    IOLog("BluelineGpu: zap init_image %lld/%llx (%u resumes)\n", r.x0, r.x1, r.resumes);
+    gpuLog("zap init_image %lld/%llx (%u resumes)\n", r.x0, r.x1, r.resumes);
     if (r.x0 || r.x1) return fail(16, 8, "zap init_image");
     if (relocate) {
         r = scmCall(pil(0x02), 3, kGpuPasId, kZapPhys, hi - lo);
-        IOLog("BluelineGpu: zap mem_setup %lld/%llx\n", r.x0, r.x1);
+        gpuLog("zap mem_setup %lld/%llx\n", r.x0, r.x1);
         if (r.x0 || r.x1) return fail(16, 9, "zap mem_setup");
     }
     {
@@ -497,7 +540,7 @@ bool zapAndSecure() {
         barrier(nullptr);
     }
     r = scmCall(pil(0x05), 1, kGpuPasId, 0, 0);
-    IOLog("BluelineGpu: zap auth_and_reset %lld/%llx (%u resumes)\n", r.x0, r.x1, r.resumes);
+    gpuLog("zap auth_and_reset %lld/%llx (%u resumes)\n", r.x0, r.x1, r.resumes);
     if (r.x0 || r.x1) return fail(16, 12, "zap auth_and_reset");
     uint32_t words[2] = {}, fence = 0, seen = 0;
     if (AdrenoPM4Type7(0x66, 1, &words[0]) != AdrenoPM4Success || gRing.submit(words, 2, &fence))
@@ -528,7 +571,7 @@ bool cpStart() {
     if (status) return fail(14, status, "ME_INIT");
     const NativeAdrenoRingClock clock{nullptr, ringNow, ringIdle};
     int waited = int(gRing.wait(fence, &clock, 200000, &seen));
-    IOLog("BluelineGpu: ME_INIT fence %u: result %d seen %u\n", fence, waited, seen);
+    gpuLog("ME_INIT fence %u: result %d seen %u\n", fence, waited, seen);
     if (waited) return fail(14, 0x10 + waited, "ME_INIT fence");
     // First command the CPU can check: CP_MEM_WRITE (0x3d) of a pattern into the scratch page.
     volatile uint32_t *scratch = reinterpret_cast<volatile uint32_t *>(gGpuCpu[4]);
@@ -542,7 +585,7 @@ bool cpStart() {
     if ((status = gRing.submit(words, 4, &fence))) return fail(15, status, "CP_MEM_WRITE submit");
     waited = int(gRing.wait(fence, &clock, 200000, &seen));
     const uint32_t value = scratch[0];
-    IOLog("BluelineGpu: CP_MEM_WRITE fence %d, scratch 0x%x\n", waited, value);
+    gpuLog("CP_MEM_WRITE fence %d, scratch 0x%x\n", waited, value);
     if (waited || value != 0x5e9a630) return fail(15, waited ? 0x10 + waited : 2, "CP_MEM_WRITE");
     return true;
 }
@@ -583,7 +626,7 @@ bool bringUp() {
     if (BluelineGpuBuildStartup(&arcs, &gStartup) != AdrenoHfiStartupSuccess) return fail(3, 0x20, "startup table");
     stage(4, 0);
     if ((s = Sdm845GpuPowerCx(&gState, &gIo))) return kitFail(4, s, "CX power");
-    IOLog("BluelineGpu: CX on, GPLL0 even %u Hz\n", gState.gpll_even_hz);
+    gpuLog("CX on, GPLL0 even %u Hz\n", gState.gpll_even_hz);
     screen("CX on; reading the GPU SMMU");
     smmuSurvey(gVa[WinSmmu]);
     if (!gmuContext() || !hfiQueues()) return false;
@@ -602,7 +645,7 @@ bool bringUp() {
     const AdrenoHfiLegacyBoot boot{uint32_t(layout.debug_iova), uint32_t(gGmuCtx.allocator().debug().bytes()), 1};
     const AdrenoHfiStartupServices services{nullptr, hfiNow, hfiWait, hfiHealth, 1000, 100, 100000, 1000000};
     const AdrenoHfiStartupStatus hs = AdrenoHfiStartupRunLegacy(&startup, &gHfi, &gStartup, &boot, &services, &result);
-    IOLog("BluelineGpu: HFI legacy startup %d: stage %u transport %d fw error 0x%x acks 0x%x\n", hs, result.stage,
+    gpuLog("HFI legacy startup %d: stage %u transport %d fw error 0x%x acks 0x%x\n", hs, result.stage,
           result.transport_status, result.firmware_error, result.acknowledged_stages);
     if (hs) return fail(8, hs, "HFI startup");
     stage(9, 0);
@@ -617,7 +660,7 @@ bool bringUp() {
     if (bootArg("blueline-gpu-zap", 1) && !zapAndSecure()) return false;
     stage(18, 0);
     if ((s = Sdm845GpuFinishBoot(&gState, &gIo, 1))) return kitFail(18, s, "boot release");
-    IOLog("BluelineGpu: GPU ready\n");
+    gpuLog("GPU ready\n");
     screen("GPU ready: CP fence + zap ok");
     return true;
 }
@@ -630,7 +673,7 @@ bool publish() {
     const IOReturn timer = gTimer.attach(&gTimerIo, NativeAdrenoTimeCp);
     const NativeAdrenoRingClock clock{nullptr, ringNow, ringIdle};
     const IOReturn published = native_adreno_publish(vm, &gSubmit, &gRing, &clock, timer ? nullptr : &gTimer, &gDeviceInfo, 32, 40);
-    IOLog("BluelineGpu: native Adreno service published: 0x%x\n", published);
+    gpuLog("native Adreno service published: 0x%x\n", published);
     return published ? fail(19, published, "publish") : true;
 }
 
@@ -658,7 +701,7 @@ bool publishMetal() {
     if (!accelerator->attach(IOService::getPlatform())) {accelerator->release(); return fail(20, 6, "accelerator attach");}
     accelerator->registerService();
     stage(21, 0);
-    IOLog("BluelineGpu: Metal accelerator registered\n");
+    gpuLog("Metal accelerator registered\n");
     screen("Metal accelerator registered");
     return true;
 }
@@ -668,7 +711,7 @@ void gpuThread(void *, wait_result_t) {
     screen("display up, GPU starts in %u s", bootArg("blueline-gpu-delay-ms", 10000) / 1000);
     IOSleep(bootArg("blueline-gpu-delay-ms", 10000));
     const unsigned mode = bootArg("blueline-gpu", 0);
-    IOLog("BluelineGpu: mode %u starting\n", mode);
+    gpuLog("mode %u starting\n", mode);
     if (bringUp() && publish() && mode >= 2) publishMetal();
 }
 }   // namespace
