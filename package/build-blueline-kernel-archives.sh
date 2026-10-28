@@ -6,6 +6,7 @@
 #       checked out at ~/blueline/ShengHidInput)
 #   build/native-legacy-display/libNativeLegacyDisplay.late.a (XNU_NATIVE_LEGACY_DISPLAY): GopFramebuffer for 22H384
 # Usage: build-blueline-kernel-archives.sh TREE KERNEL   (KERNEL: a built kernel of this profile, for the binding checks)
+# CPU_COPY=1 keeps the display's CPU copy (software rendering; build-blueline-display.py --cpu-copy).
 set -euo pipefail
 TREE=$(cd "$1" && pwd); KERNEL=$2
 U=$HOME/blueline/UniXNU; SOC=$HOME/blueline/UniXNU-sdm845-common; DEV=$HOME/blueline/UniXNU-blueline
@@ -14,7 +15,7 @@ python3 "$DEV/package/build-blueline-gpu.py" --tree "$TREE" --components "$U" --
   --firmware "$DEV/.cache/firmware/blueline-gpu"
 python3 "$DEV/package/build-blueline-accelerator.py" --tree "$TREE" --components "$U" --kernel "$KERNEL"
 python3 "$DEV/package/build-blueline-display.py" --tree "$TREE" --components "$U" --kernel "$KERNEL" \
-  --kernelcache "$U/out/ipsw/22H384/kernelcache.decompressed"
+  --kernelcache "$U/out/ipsw/22H384/kernelcache.decompressed" ${CPU_COPY:+--cpu-copy}
 python3 "$DEV/package/build-blueline-hid.py" --tree "$TREE" --components "$U" --hid "$HOME/blueline/ShengHidInput" \
   --kernel "$KERNEL" --kernelcache "$U/out/ipsw/22H384/kernelcache.decompressed"
 WORK=$(mktemp -d)

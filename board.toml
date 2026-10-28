@@ -135,8 +135,11 @@ kernel_args = [
   "native-ufs-smmu-mask=0xf",
   "native-ufs-smmu-size=0x80000",     # apps_smmu register window
   "native-ufs-smmu-adopt=1",          # keep the firmware's own entry for the stream when it is a bypass bank
-  # GPU candidate (docs/GPU-A630.md): GopFramebuffer's NativeLegacyDisplay on the GOP framebuffer, frames only through the
-  # GPU hand-off (its CPU copy is removed at build time), the A630 bring-up and the Metal accelerator (package/BluelineGpu.cpp).
+  # Software rendering (owner, 2026-10-28: fix input and the rest first, GPU later): GopFramebuffer's NativeLegacyDisplay on
+  # the GOP framebuffer with its CPU copy (kernel archives built with CPU_COPY=1), no Metal device, so QuartzCore renders on
+  # the CPU (as fajita, SDM845, and UniXNU's QEMU target without --metal). The GPU candidate (docs/GPU-A630.md) was
+  # sheng-fb-gpu=1, blueline-gpu=2 and sheng-gpu-addon=1, with archives built without CPU_COPY and the payload's
+  # --trust-cache/--gpu-addon.
   "offline-mobile-graphics-load=1",  # load IOMobileGraphicsFamily, then register the display classes
   "offline-legacy-register=1",
   "offline-legacy-gop=1",
@@ -147,10 +150,9 @@ kernel_args = [
                                      # never retired and the queue stopped for good (run 43: reason 2 from 98 s on)
   "offline-legacy-phase=4",
   "offline-legacy-unit-scale=3",     # 1080x2160 pixels -> 360x720 points, an iPhone-sized screen
-  "sheng-fb-gpu=1",                  # frames go to the GPU hand-off presenter
+  "fajita-fb-wc=1",                  # write-combined framebuffer for the per-frame copy (fajita)
+  "fajita-fb-src-cached=1",          # read the surface through a cacheable mapping (fajita)
   "sheng-vsync=60",
-  "blueline-gpu=2",                  # A630 bring-up, native Adreno publication, Metal accelerator
-  "sheng-gpu-addon=1",               # the kernel writes the GPU addon (Metal plugin) into Data; the seed is unchanged
 ]
 
 [payload.adt]

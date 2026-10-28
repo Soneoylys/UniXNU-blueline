@@ -7,6 +7,8 @@ scripts/build-gop-legacy-display.py (21H461), with the ABI of docs/DISPLAY-22H38
   - owned slots 296 startHardware, 298 kickSwapQueue, 304 validateSwap, 309 getRefreshAttributes (21H461 288/290/296/301),
     abstract leaves 212 214 247 248 314 315 347 348 355;
   - the display's CPU copy fallback is removed: a frame the GPU hand-off refuses stays pending (owner: no CPU rendering);
+    with --cpu-copy (software rendering) it stays, with fajita's two copy speedups (UniXNU-fajita NativeLegacyDisplay.cpp,
+    SDM845): fajita-fb-wc=1 maps the GOP framebuffer write-combined, fajita-fb-src-cached=1 reads the surface cached;
   - original bindings at prelinked addresses (kernelcache - 0x1000000), each checked against the 22H384 kernelcache and
     the built kernel before use.
 The board hooks are package/BluelineDisplayProbe.cpp; the GPU hand-off presenter is GopFramebuffer's NativeGOPPresenter."""
@@ -18,6 +20,7 @@ p.add_argument('--tree', type=Path, required=True)
 p.add_argument('--components', type=Path, required=True)
 p.add_argument('--kernel', type=Path, required=True, help='a built kernel of this profile (bindings are checked in it)')
 p.add_argument('--kernelcache', type=Path, required=True, help='the decompressed 22H384 kernelcache')
+p.add_argument('--cpu-copy', action='store_true', help='keep the CPU copy (software rendering, no GPU hand-off needed)')
 a = p.parse_args()
 tree, components = a.tree.resolve(), a.components.resolve()
 sys.path.insert(0, str(components / 'kits/XnuPrelink'))
@@ -157,9 +160,32 @@ source = source.replace('    LEAF(355)\n', '    uint32_t dpLinkState() override 
 cpu_copy = '        IOMemoryMap *source=memory->map(kIOMapAnywhere|kIOMapReadOnly);\n'
 if source.count(cpu_copy) != 1:
     fail('CPU copy fallback not found once')
-source = source.replace(cpu_copy, '        // blueline: no CPU copy. A frame the GPU hand-off refused stays pending until the GPU takes it.\n'
-                        '        native_legacy_gpu_fallback_observed(-1);native_legacy_transfer_observed(kIOReturnNotReady,request,0);return;\n'
-                        + cpu_copy)
+if not a.cpu_copy:
+    source = source.replace(cpu_copy, '        // blueline: no CPU copy. A frame the GPU hand-off refused stays pending until the GPU takes it.\n'
+                            '        native_legacy_gpu_fallback_observed(-1);native_legacy_transfer_observed(kIOReturnNotReady,request,0);return;\n'
+                            + cpu_copy)
+else:
+    # Software rendering: fajita's cached source read. CoreAnimation's surfaces are write-combined and the copy reads every pixel; the
+    # lines are cleaned and invalidated first, so nothing cached from an earlier frame is copied.
+    source = source.replace(cpu_copy,
+        '        static int srcCached=-1;\n'
+        '        if(srcCached<0){unsigned v=0;PE_parse_boot_argn("fajita-fb-src-cached",&v,sizeof v);srcCached=v==1;}\n'
+        '        IOMemoryMap *source=memory->map(kIOMapAnywhere|kIOMapReadOnly|(srcCached?kIOMapCopybackCache:0));\n'
+        '        if(srcCached && source && source->getVirtualAddress()) {\n'
+        '            uint64_t ctr;__asm__ volatile("mrs %0, ctr_el0":"=r"(ctr));\n'
+        '            const uintptr_t line=(uintptr_t)4<<((ctr>>16)&15);\n'
+        '            uintptr_t at=(uintptr_t)source->getVirtualAddress()&~(line-1);\n'
+        '            const uintptr_t end=(uintptr_t)source->getVirtualAddress()+(uintptr_t)source->getLength();\n'
+        '            for(;at<end;at+=line)__asm__ volatile("dc civac, %0"::"r"(at):"memory");\n'
+        '            __asm__ volatile("dsb sy" ::: "memory");\n'
+        '        }\n')
+    # fajita's write-combined framebuffer: with device memory the copy was ~59% of all CPU samples on fajita.
+    gop_map = '        IOMemoryMap *mapping=provider->mapDeviceMemoryWithIndex(0,kIOMapInhibitCache);\n'
+    if source.count(gop_map) != 1:
+        fail('GOP framebuffer mapping not found once')
+    source = source.replace(gop_map,
+        '        unsigned wc=0;PE_parse_boot_argn("fajita-fb-wc",&wc,sizeof wc);\n'
+        '        IOMemoryMap *mapping=provider->mapDeviceMemoryWithIndex(0,wc==1?kIOMapWriteCombineCache:kIOMapInhibitCache);\n')
 if re.search(r'\+(5592|5472|5480|5488|5808|5812|2624|2960|2968)\b', re.sub(r'//[^\n]*', '', source)):
     fail('a 21H461 offset is left in NativeLegacyDisplay.cpp')
 unit = out / 'NativeLegacyDisplay.cpp'
@@ -334,4 +360,4 @@ sha = lambda path: hashlib.sha256(Path(path).read_bytes()).hexdigest()
     generated_abi_sha256=sha(out / 'OriginalLegacyFramebufferABI.h'), kernel=str(a.kernel), kernel_sha256=sha(a.kernel),
     archive_sha256=sha(archive), bindings={n: hex(v - SHIFT) for n, v in bindings.items()}, owned_entries=owned,
     cpu_copy_removed=True, display_presented=False), indent=2) + '\n')
-print(f'PASS: NativeLegacyDisplay for 22H384 ({SLOTS} slots, {len(bindings)} bindings checked), CPU copy removed: {archive}')
+print(f'PASS: NativeLegacyDisplay for 22H384 ({SLOTS} slots, {len(bindings)} bindings checked), {"CPU copy kept (software rendering)" if a.cpu_copy else "CPU copy removed"}: {archive}')

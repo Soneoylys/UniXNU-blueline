@@ -1833,3 +1833,24 @@ Run 45: kernel 36 unchanged, board.toml adds `offline-legacy-cpu-present=1`. Eig
 (`~/blueline/run45-build.sh`) abb5b49a…4e2c, boot image `blueline-unixnu-mu-simplefb-xnu36b-8cpu.img`
 8cc8a352437af88049ed6ec8088ee183ac1ee3438786271cf861578576f87a00 (fd 3e744b3c…), folder build/share/run45.
 Expected: the picture keeps updating after a blank frame, and power brings it back. Touch is unknown until a dump shows `[touch]`.
+Run 45 was not tested: the owner chose software rendering first (below).
+
+### Run 46 prepared (2026-10-28): software rendering
+
+Owner: switch to software rendering, fix the other issues (input and the rest), then come back to the GPU.
+References: fajita (OnePlus 6T, also SDM845; refs/UniXNU-fajita board.toml and drivers/NativeMobileDisplay) renders iOS 17
+on the CPU through NativeLegacyDisplay's CPU copy, and UniXNU's QEMU target documents that without a Metal device QuartzCore
+uses its CPU renderer.
+- `package/build-blueline-display.py --cpu-copy` (archive script: `CPU_COPY=1`) keeps the CPU copy and adds fajita's two copy
+  speedups as boot arguments: `fajita-fb-wc=1` maps the GOP framebuffer write-combined (fajita: the uncached copy was ~59% of
+  all CPU samples), `fajita-fb-src-cached=1` reads the surface through a cacheable mapping after a clean+invalidate.
+  Without the option the build is unchanged (CPU copy removed, GPU candidate).
+- board.toml: `sheng-fb-gpu=1`, `blueline-gpu=2` and `sheng-gpu-addon=1` removed (no A630 bring-up, no Metal accelerator, no
+  plugin mount), `fajita-fb-wc=1` and `fajita-fb-src-cached=1` added, `offline-legacy-cpu-present=1` kept. The payload has no
+  `--trust-cache`/`--gpu-addon`.
+- Unchecked: whether 22H384's backboardd runs without any Metal device (QEMU's no-Metal evidence is iPadOS 17).
+Kernel 37 18bf104d…6d04 (Mac `~/blueline/run46-build.sh`, kernel37-build.sh), eight-core payload f6f68572…cdfca
+(`cpus=8 sheng-smp=1 ml-timeout-debug-ack=19200000`, a build-time edit; board.toml keeps cpus=1), boot image
+`blueline-unixnu-mu-simplefb-xnu37-swrender-8cpu.img` 236a2d7bff67ef9c96648159f4d61e843718a24f3a5b78387d37c4ad61c6326a,
+folder build/share/run46 (TEST-RUN46.txt). Look for in the dump: `[display]` transfers and retirements rising together
+with `[kick]` not stuck on reason 2, `[touch]` stage/events/reports, `[keys]`, and backboardd crash reports in /var.
