@@ -5,7 +5,42 @@ AdrenoMetal frontend, with SDM845 platform operations and A6 command framing.
 The owner requires the next phone test to contain GPU rendering, one CPU until
 SpringBoard, persistent Data and no colour bars. No CPU-rendered display test
 is planned. GopFramebuffer is the scanout target; the 22H384 ABI derivation is
-in DISPLAY-22H384.md. No GPU image or hardware success is claimed yet.
+in DISPLAY-22H384.md.
+
+## Current checkpoint (2026-10-28)
+
+Run 38 reaches GMU/HFI startup, CP/fence/ZAP checks, native publication and Metal
+accelerator registration. Its readback identifies the userspace plugin's refusal
+of iPadOS 18's 600-byte `_MTLDevice` base. Run 39 / kernel 31 includes the fix
+(Mac AdrenoMetal `d49f74c`) plus plugin markers/reports/telemetry in each UFS-log slot.
+Run 39 readback now confirms Metal-device creation and return to discovery
+(markers `6802/6803`); its plugin CDHash matches the prepared build. The UFS logger
+reaches 1,266 seconds with zero writer errors. No swap, transfer, retirement or
+GPU completion is observed. Seven backboardd reports repeat an unrecognized
+`setResponsibleTaskIDs:count:` selector in QuartzCore's `start_command_buffer`.
+Lead diagnosis: missing OS18 command-buffer API in the custom frontend. Verify
+the receiver and exact 22H384 signature before implementing.
+
+Board sources: `package/BluelineGpu.cpp`, `BluelineDisplayProbe.cpp`, `BluelineLog.c`,
+and `build-blueline-{gpu,accelerator,display}.py`. Shared SDM845 operations remain
+in `UniXNU-sdm845-common/kits/Sdm845Gpu`. The OS18 build and plugin source of record
+are on the Mac, not the older `refs/AdrenoMetal` reference checkout.
+
+Registration is not proof of a userspace Metal device or a presented frame.
+`ph 19` is kit GpuReady and `gpu+2018` is CP_RB_RPTR. The status is emitted before
+the read, once per phase/window transition, so it does not establish a stalled bus.
+`disp` counts accepted/refused swap validations, not rendered frames.
+
+Next: verify `setResponsibleTaskIDs:count:` against 22H384 and the receiving
+AdrenoMetal object, then implement/test the smallest correct compatibility change
+in the active Mac source. Preserve root, Data seed/UUID and overlay geometry.
+Commands, hashes, crash details and read-only Data artifacts are in PROGRESS.md,
+"Run 39 readback". No runtime fix or new candidate has been made during this
+analysis; userspace rendering, scanout and performance remain unverified.
+
+The implementation survey and takeover plan below are historical 2026-10-27
+checkpoints; their pending integration tasks were subsequently carried out in
+runs 30-39 as recorded in PROGRESS.md.
 
 ## References and inputs
 
@@ -69,7 +104,7 @@ A630 GMEM starts at GPU VA 0x100000, so the A740 SQE mapping at that same VA
 must move for A630. Keep allocations inside XNU's owned memory; no foreign
 hardcoded physical pool. These DT facts do not prove live clock or GPU state.
 
-## Implemented, awaiting integration
+## Historical core implementation (2026-10-27, before integration)
 
 - AdrenoFirmware adds explicit legacy v1 transport: two queues, response
   queue type 0xa04, dword indices and unpadded messages. Modern v2 remains
@@ -109,7 +144,7 @@ hardcoded physical pool. These DT facts do not prove live clock or GPU state.
   fixed DDR/CNOC bandwidth table. Its 21 synthetic-rail checks pass. No actual
   command database has been read and no fallback rail data is provided.
 
-## Remaining
+## Historical integration tasks (2026-10-27)
 
 Wire the SDM845 operations, qualified cmd-db votes and owned SMMU streams
 to the native memory/VM components and driver lifecycle. Obtain actual clock
@@ -173,13 +208,13 @@ Order of work:
    GPU-only scanout mode on the 22H384 ABI (DISPLAY-22H384.md).
 5. Package the one-core, no-bars candidate on the existing Data seed.
 
-Steps 2 and 3 can be phone-tested on their own: a kernel that brings the GPU up
+The original plan noted that steps 2 and 3 could be phone-tested on their own: a kernel that brings the GPU up
 to a completed fence and logs the result, with the screen left as it is (no CPU
 rendering). Whether that test comes before the full Metal candidate is the
-owner's decision.
+owner's decision. The owner subsequently chose the full GPU/Metal/display candidate, not an intermediate test.
 
 Host checks are under build/gpu-tests and ~/blueline/gpu21-tests on the Mac.
-No kernel 21, new phone run, source commit or publication has occurred.
+At that checkpoint no kernel 21, new phone run, source commit or publication had occurred.
 
 Core build (Mac):
 

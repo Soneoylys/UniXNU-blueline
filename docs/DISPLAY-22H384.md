@@ -1,4 +1,17 @@
-# GopFramebuffer on 22H384: derived ABI (work in progress)
+# GopFramebuffer on 22H384: derived ABI
+
+Current status (2026-10-28): `package/build-blueline-display.py` generates the
+22H384 interface and byte-checks the bindings; `BluelineDisplayProbe.cpp` supplies
+the board startup/observers. Run 30 readback confirms a main CADisplay, 1080x2160
+pixels and scale 3. The CPU copy fallback is removed; the SM8550 direct-DPU path
+is not used. Run 39 readback confirms Metal-device creation and display/presenter
+startup, but no swap validations, transfers, retirements or GPU completions.
+Seven backboardd reports identify unsupported `setResponsibleTaskIDs:count:` on
+QuartzCore's Metal command-buffer path. Fix/verify that frontend ABI gap before
+retesting GPU-only presentation (PROGRESS.md, "Run 39 readback").
+
+The ABI derivation below predates integration. It is retained as the provenance
+of the generator's slots, offsets and bindings, not as a pending implementation plan.
 
 Source of the 21H461 facts: refs/UniXNU-sheng `scripts/build-gop-legacy-display.py`, `package/LegacyDisplayProbe.cpp`,
 UniXNU `drivers/GopFramebuffer/NativeLegacyDisplay.cpp` and `scripts/audit-mobile-graphics-legacy.py`.
@@ -66,7 +79,7 @@ getDisplayDimensions 251, isMainDisplay 184.
 Other family facts in 22H384: IOMobileFramebufferService C2 0xfffffff005c17e94, D2 0xfffffff005c17eb8; six-word async
 send 0xfffffff005c15efc; "IOMFBDisplayRefresh" string 0xfffffff005264301.
 
-## Next
+## Original implementation plan (completed integration; presentation still pending)
 
 1. A 22H384 generator (based on refs/UniXNU-sheng `scripts/build-gop-legacy-display.py`): 368-slot header with the
    mapped owned slots and abstract leaves, size 0x19c0, the offsets above in the header helpers, bindings at the

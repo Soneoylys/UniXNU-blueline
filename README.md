@@ -3,8 +3,9 @@
 > [!WARNING]
 > **This repository is entirely AI-generated** (Anthropic Claude Code and Codex, under the direction of the owner), as
 > UniXNU-pocket-max. No line has been reviewed by a human firmware or kernel engineer. The firmware has run on a
-> Pixel 3, and kernel 17 reaches a userspace child-execution entitlement check before an AMFI panic (docs/PROGRESS.md).
-> Boot images use temporary `fastboot boot`; kernel 18 also writes persistent Data inside the allocated `darwin` region.
+> Pixel 3; one-core XNU reaches userland with persistent writable Data, and the A630 reaches CP/fence/ZAP checks and
+> Metal accelerator registration. Userspace GPU rendering and presentation are not yet verified (docs/PROGRESS.md).
+> Boot images use temporary `fastboot boot`, but XNU writes persistent Data and diagnostic logs inside `darwin`.
 
 Experimental [UniXNU](https://github.com/UniXNU/UniXNU) device repository for the **Google Pixel 3 (blueline)**:
 Snapdragon 845 (SDM845), 4 GB RAM, UFS 2.1, 1080x2160 OLED panel.
@@ -32,14 +33,22 @@ SP1A.210812.016.C2), extracted with `scripts/extract-blueline-xbl.py`, and the m
 | `bluelinePkg` firmware volume builds on Windows (three variants) | done |
 | Boot images for `fastboot boot` (header v1, appended DTB, text_offset 0x80000) | done |
 | UniXNU menu, payload volume and keys on the phone (Mu-only firmware) | **works** (runs 2-4); the stock-driver variants crash |
-| Format 2 device repository on UniXNU-sdm845-common | done; iPadOS 18.7.11 kernel 17 builds on the owner's Mac |
-| DarwinBoot, XNU kernel entry | reaches BSD init and root-device matching on one CPU |
-| Root device | kernel 17 reaches `posix_spawn`; both CPU variants panic in AMFI dictionary conversion. Kernel 18 uses Apple's per-key entitlement API; phone test pending |
-| CPU | eight-core candidate with SDM845 firmware LUT clock requests and pixel3-ios idle/stall workarounds; hardware count/speed pending |
+| Format 2 on UniXNU-sdm845-common | iPadOS 18.7.11; latest delivered candidate is run 39 / kernel 31, built on the owner's Mac |
+| Boot, root and Data | one-core userland runs; writable `/var` survives reboot (run 29 readback) |
+| CPU | keep `cpus=1 sheng-smp=0` until SpringBoard; eight-core stability and actual clock measurements remain pending |
+| Kernel display | 22H384 GopFramebuffer registers a main CADisplay (run 30); GPU-only presentation is not yet verified |
+| A630 / Metal | CP/fence/ZAP and Metal-device creation pass; run 39 backboardd aborts on missing `setResponsibleTaskIDs:count:` during QuartzCore command-buffer setup; no presented frame |
+| Input | firmware keys work; kernel touch/buttons are not implemented |
+
+Run 39 readback shows 1,266 seconds of logging with zero writer errors, but no swap/transfer/GPU completion activity.
+Seven backboardd reports identify the same missing Metal command-buffer selector; this is the next compatibility target.
+The final `ph 19 r gpu+2018` marker is not a machine-hang diagnosis. Preserve the existing root and Data seed/geometry.
 
 [docs/PROGRESS.md](docs/PROGRESS.md) has the variants, the test procedure and what to report.
 [docs/BOOT-ARGS-AUDIT.md](docs/BOOT-ARGS-AUDIT.md) compares the Sheng/Pocket Max startup settings and Pixel 3 CPU evidence.
 [docs/PERSISTENT-DATA.md](docs/PERSISTENT-DATA.md) records the Data seed, bounded overlay and AMFI change.
+[docs/GPU-A630.md](docs/GPU-A630.md) records the GPU integration and remaining verification;
+[porting.toml](porting.toml) is the structured porting record.
 
 ## Contents
 
@@ -47,7 +56,7 @@ SP1A.210812.016.C2), extracted with `scripts/extract-blueline-xbl.py`, and the m
 | --- | --- |
 | `board.toml`, `configs/blueline_defconfig` | Format 2 board description and first kernel configuration for `unixnu` |
 | `dts/blueline.dts`, `feeds.toml` | Board hardware description (includes `sdm845.dtsi`) and the pinned SoC repository |
-| `patches/xnu/series`, `package/` | Board XNU patches (none yet) and the device package (`kits/blueline`) |
+| `patches/xnu/series`, `package/` | Board XNU diagnostics, GPU/display integration, logger and archive recipes (`kits/blueline`) |
 | `porting.toml`, `AGENTS.md`, `proprietary-files.txt` | Porting record, agent guide, pinned stock firmware inputs |
 | `scripts/fetch-blueline-factory.py` | Fetch single members of the factory zip (nested image zip too) over HTTP range requests |
 | `scripts/unpack-fbpk.py` | Pixel bootloader image (FBPK v1) → xbl, abl, tz, ... and the FBPT partition tables, CRC-checked |

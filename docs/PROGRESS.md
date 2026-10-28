@@ -1486,3 +1486,116 @@ Run 39 (kernel 31 30380204069310d376d173bf0ced1f6dfa2f137edf31ccfb90d11f6e8b420a
 Payload e603d3e0…5044, boot image `build/boot/blueline-unixnu-mu-simplefb-xnu31-gpu.img`
 bf43e4dda54e8fcc39a8bcc6227e9220656bee1f421b0161ab5b819c92e53d8b, archive `build/share/blueline-run39-kernel31-gpu.7z`
 db8c1bf080346373256fa7346774ca5f2a7554c878099493ba9f66de004282b7.
+
+### Latest photo after prepared run 39 (2026-10-28): registered accelerator, no presentation evidence
+
+The owner supplied a photo while asking to continue the previous work. Treat it as the expected run 39 result for
+triage, not a confirmed image identity: the visible status text is also present in run 38 and has no kernel number or
+boot ID. No run-39 UFS dump or /var readback has been supplied yet.
+
+Visible lines include HFI start, GPU_SET, GPU SMMU bank 0 / slot 0, hardware setup, release,
+`GPU ready: CP fence + zap ok`, publish, Metal, `GPU 21 Metal ok`, and `Metal accelerator registered`.
+The summary reads `disp 0/0 gpu-ref 0 xfer 0 log 2 r163`; the last status line is `ph 19 r gpu+2018`.
+
+Source interpretation (`package/BluelineGpu.cpp`, `package/BluelineDisplayProbe.cpp`):
+- The bring-up path reaches CP/fence/ZAP checks and accelerator registration. Kernel registration does not establish
+  userspace Metal device discovery, pipeline creation or a rendered frame.
+- `disp` counts swap validations accepted/refused, not presented frames. `gpu-ref` counts refused GPU offers and
+  `xfer` counts transfer callbacks. All are zero in this photo. GPU completions have their own UFS-log field.
+- `ph 19` is the SoC kit's GpuReady phase, not board stage 19 (publish). Offset 0x2018 is CP_RB_RPTR (dword 0x806).
+  The marker is written **before** the read and only on a window/phase transition. It proves neither that the read
+  completed nor that it stalled; an unchanged final marker is not a continuous execution trace.
+- `log 2 r163` shows the logger had reached writing state and round 163 when the summary was drawn. One photo cannot
+  establish whether rounds continued after the final MMIO marker or whether the machine later stopped.
+
+Resume checks: device HEAD `9259009e115ae2c23148b1f86f69c80e409e2a27`; SoC HEAD
+`f048c7522bf741a397a003905b0e1974396f4d88`; Mac UniXNU HEAD `93b4a4d350b580e87ac7d987a8e48df89fc20697`;
+Mac AdrenoMetal HEAD `d49f74c0748222d5aa683ec193567f94c2458d06`. The active Mac source contains the 536/600-byte
+dynamic-subclass guard. The Windows `refs/AdrenoMetal` reference still has the older 536-byte guard and is not the
+source of the delivered plugin. Mac readbacks currently end at run 38.
+
+Host delivery check: `Get-FileHash build/share/blueline-run39-kernel31-gpu.7z -Algorithm SHA256` matches
+`db8c1bf080346373256fa7346774ca5f2a7554c878099493ba9f66de004282b7` (20,644,720 bytes).
+`7z t build/share/blueline-run39-kernel31-gpu.7z` passes for all four files. These are archive checks, not new phone tests.
+
+Next: preserve this boot's log by returning to fastboot and temporarily booting the existing TWRP image. In the folder
+containing adb and the run-39 bundle's `blueline-dump.ps1`, run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\blueline-dump.ps1
+```
+
+Send `blueline-readback.7z` (or `.zip`). No `-Data` is needed initially. Decode with
+`python scripts/blueline-log.py <path-to-blueline-log.bin>`; inspect boot ID, uptime/round progression, write errors,
+`[plugin]` markers/reports, `[client]`, `[opens]`, `[row ...]`, and `[gop] gpu completions` before choosing a code change.
+Do not boot XNU again before capture: its logger replaces the previous run's header and message buffer. No new kernel,
+image, partition write, seed change, commit or push was made during this resume.
+
+### Run 39 readback (2026-10-28): Metal device created; backboardd aborts on OS18 selector
+
+Owner supplied `C:\Users\user\Desktop\blueline-readback.7z` (110,469,982 bytes). `7z t` passes; SHA-256
+`9c94c3d67b7b77684a659fe6da13e11e225eca4b3542442b5aab0a8e0d7a8ee2`. Contents: `blueline-log.bin` (33,554,432 bytes),
+`data-bitmap.bin` (2,621,440 bytes), `data-pages.bin` (591,642,624 bytes). Archive and extracted Data files are preserved
+on the Mac; no writes were made to the phone.
+
+**UFS and liveness.** Command:
+
+```powershell
+python scripts/blueline-log.py C:\Users\user\AppData\Local\Temp\opencode\blueline-readback\blueline-log.bin
+```
+
+Decoded files: `build/blueline-logs/blueline-191aeed9/{header.txt,latest.txt,slots.txt,msgbuf.txt}`. Header: SHLOG001 v4,
+boot ID `0x191aeed9`, 674 rounds/slots, uptime 1266 s, state writing, zero writer errors. The 509 retained slots cover
+rounds 165-673 (uptime 248-1266 s), following the photo's r163. This confirms XNU logging continued well beyond the
+photographed checkpoint, reaching about 21 minutes of logger uptime. The final pre-read `ph 19 r gpu+2018` marker is
+not evidence of a whole-machine hang. Earlier ring slots were overwritten normally; the header has no full image hash.
+
+**GPU and Metal.** The retained driver trace includes ME_INIT and CP_MEM_WRITE fence success, ZAP init/mem-setup/auth,
+native publication and Metal registration. Plugin markers repeatedly reach `6800` (entered), `6801` (Turnip found),
+`6814` (cache candidate 4), `6802` (Metal device made), `6803` (returned to discovery). Final diagnostic counters: 34
+opens / 34 grants / 34 closes, 4728 calls, zero busy/bad/refused; opener is backboardd. The read-back plugin CDHash
+`5bbc1760f7e4b59d1f66c2fc9a7c4446b2e2ab86` matches the prepared run-39 plugin. This is beyond run 38's `_MTLDevice`
+base-size refusal, but not proof of a completed render.
+
+**Display.** All 509 retained slots show `[display] a 0 1 1 1 1 0 0 0 0 0 0`: display stage 10, successful init/probe/start,
+presenter initialized; zero swap validations/refusals, refused GPU offers, transfers and retirements. `[gop] gpu
+completions` is always 0. Both plugin report strings are blank; no `[client]` or `[row ...]` telemetry appears.
+
+**Crash cause.** The reconstructed Data contains seven backboardd `.ips` reports, all on boot session
+`B46D0CCE-38CF-4E4F-B61F-3BAD53A00B73`, iOS 18.7.11 / 22H384, at reported uptimes 150, 310, 330, 370, 450, 610 and 930 s.
+Every report has `SIGABRT` / `NSInvalidArgumentException`, unrecognized selector `setResponsibleTaskIDs:count:`.
+Exception stacks run through `CA::OGL::MetalContext::start_command_buffer` → `start_render_encoder` → drawing.
+launchd logs confirm successive backboardd crashes and exponential respawn throttling (latest recorded delay 637 s),
+and record SpringBoard killed by backboardd. The active Mac `NativeBridgeMetalFrontend.mm` at AdrenoMetal `d49f74c`
+has no implementation of that selector. Leading diagnosis: a missing OS18 command-buffer API in the custom frontend.
+Confirm the receiver and exact 22H384 selector signature before implementing; no frontend fix has been made yet.
+
+**Storage/readback integrity.** Bitmap has 144444 pages in 50 runs; its expected page bytes match the supplied file.
+Windows/Mac hashes match: bitmap `ad15b8d2231cb18e7968caaf26b9069cc7234ed6268ac53e7cfaf50da155b19a`,
+pages `41f2190ccd0a317d9d5d8624b6fb045ff0db297a30b522d53b8308cbadc3c0e3`. Reconstruction uses the existing seed,
+SHA-256 `e3b1ea02c0baea7e1c085b6734178b23966e998c26b256cb1423416a5d1835fd`:
+
+```sh
+python3 ~/blueline/data-readback/blueline-data-rebuild.py \
+  ~/blueline/ios18-tools/blueline-data/blueline-data.dbr \
+  --bitmap ~/blueline/data-readback/run39-attached-191aeed9/data-bitmap.bin \
+  --pages ~/blueline/data-readback/run39-attached-191aeed9/data-pages.bin \
+  -o ~/blueline/data-readback/run39-attached-191aeed9/run39-data.img
+hdiutil attach -readonly -nomount -imagekey diskimage-class=CRawDiskImage \
+  ~/blueline/data-readback/run39-attached-191aeed9/run39-data.img
+mount -t apfs -o rdonly,nobrowse,noowners /dev/disk19s1 \
+  ~/blueline/data-readback/run39-attached-191aeed9/mnt
+```
+
+The 80 GiB reconstructed image mounts read-only with expected Data UUID `789552B2-C2BA-476F-BE80-99D2ECA02A7C`.
+Disk numbers above are this attachment only; verify before reuse. Crash reports are under
+`mnt/mobile/Library/Logs/CrashReporter/backboardd*.ips`; launchd logs under `mnt/log/com.apple.xpc.launchd/`.
+Archive copy: `~/blueline/data-readback/run39-readback.7z`. The image is left mounted read-only for the next agent.
+Unified logs have not yet been decoded for this readback; the direct `.ips` exception reason already identifies the gap.
+
+**Handoff.** Owner asked to hand off to Claude. Next: inspect the 22H384 `setResponsibleTaskIDs:count:` contract and actual
+receiver, implement/test the smallest correct frontend compatibility change, then build/check the plugin before another
+phone candidate. Preserve root, Data seed/UUID/geometry, `cpus=1 sheng-smp=0`, GPU-only presentation and no colour bars.
+No runtime code, kernel/plugin build, new image, phone access, commit or push during this analysis; documentation only.
+Handoff validation: `git diff --check` passes (line-ending warnings only);
+`python refs/UniXNU-main/scripts/porting-record.py check --device .` passes all 13 structured areas.
