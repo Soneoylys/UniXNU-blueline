@@ -1341,3 +1341,17 @@ Kernel 23 f64f70cd899b657e643d606b4421de5e5a546304989c40fa5a46613b8e38e3d5 (GPLL
 a939c398…ffe8, boot image `build/boot/blueline-unixnu-mu-simplefb-xnu23-gpu.img`
 11d9571e6520963e47465e9810e4955701e14403d690ec2c6b94f3a96dd2804c, archive `build/share/blueline-run32-kernel23-gpu.7z`
 0ecabb4e7e6798234fd380207ec83174ac62622127ea48f5faafa1667dc1b0c2.
+
+### Run 32 result and prepared run 33 (2026-10-28)
+
+Run 32 (kernel 23): black screen, no reboot. /var (one-command `scripts/blueline-dump.ps1`; Mac `~/blueline/ios18-tools/
+readback.sh 32`, boot 5C22B695): GPLL0 passed; `CX power: status 4 phase 1 window 0 offset 0x7100C value 0x80004221`:
+the voted gcc_gpu_memnoc_gfx_clk never ran because the kit enabled it before gpu_cx_gdsc (Linux a6xx_gmu_resume does
+pm_runtime_get_sync first). `BluelineDisplay: GPU frame failed -1`: a frame reached the display; the black screen was a
+blank frame, not GPU output.
+Run 33 (kernel 24 670104eaeef1c9205aee007483baba17f634d33ef82e63d7b93fb3c4d6fe4d27): kit order cfg_ahb, CX GDSC (poll
+gds_hw_ctrl 0x1540 PWR_ON), then DDRSS/memnoc/DVM branches (986 host checks pass); on-screen GPU status lines with failure
+register dumps (iso_font, rows from y 1180, redrawn every 2 s until the first GPU frame); GPU/GMU SMMU slot and bank picked
+automatically when taken. Payload d7739c6a…0693, boot image `build/boot/blueline-unixnu-mu-simplefb-xnu24-gpu.img`
+414ccb30facb5b5303b03e7a9037b85ed9a7627f53c756ced0191a9da6468fca, archive `build/share/blueline-run33-kernel24-gpu.7z`
+35ea238d2c897961123cecb0cba2ceb4676186d3c168918c1a6b3b10de8f5245.
