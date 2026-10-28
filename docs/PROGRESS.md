@@ -1599,3 +1599,34 @@ phone candidate. Preserve root, Data seed/UUID/geometry, `cpus=1 sheng-smp=0`, G
 No runtime code, kernel/plugin build, new image, phone access, commit or push during this analysis; documentation only.
 Handoff validation: `git diff --check` passes (line-ending warnings only);
 `python refs/UniXNU-main/scripts/porting-record.py check --device .` passes all 13 structured areas.
+
+### Run 39 readback re-checked (Claude) and prepared run 40 (2026-10-28)
+
+The owner asked whether the Codex run 39 analysis can be trusted. It was re-checked from the same archive (SHA-256
+9c94c3d6…8ee2), with an independent /var rebuild (`readback.sh 39`, boot B46D0CCE) and the unified log decoded.
+- Confirmed: UFS header 674 rounds, 1266 s, 0 write errors. Plugin markers 6800/6801/6814/6802/6803 repeat; backboardd made
+  34 opens and 34 closes. Zero swaps, transfers and GPU completions. Seven backboardd `.ips` reports, all from this boot
+  session, all with the same plugin image (UUID fe9e07b2…), all SIGABRT on `setResponsibleTaskIDs:count:` from
+  `CA::OGL::MetalContext::start_command_buffer`.
+- Added: the unified log names the receiver the `.ips` redacts: `-[NBCommandBuffer setResponsibleTaskIDs:count:]`. The 22H384
+  QuartzCore disassembly agrees (`ctx+2992` is `[queue commandBuffer…]`; x2 is an int32 vector, x3 = (end-begin)>>2; the
+  result is unused). backboardd crashed more than seven times: once the kernel's corpse limit was reached ("Corpse failure, too
+  many"), later aborts left no report. launchd throttled it.
+- Corrected: SpringBoard was not killed by backboardd. The SIGABRTs are backboardd's own abort (sender = its own pid), and
+  SpringBoard exits normally (exit 0 or 255) after losing backboardd. liveactivitiesd SIGTRAPs and bluetoothd/fairplayd throttling
+  are pre-existing and unrelated. `native-metal: no device answer` lines (gpuCoreCount and others) are informational.
+Verdict: the diagnosis and the next step are right. Two details were off (SpringBoard, crash count), and neither changes the fix.
+
+Run 40 (kernel 31 unchanged): Mac UniXNU drivers/AdrenoMetal 6289622 (local) implements `setResponsibleTaskIDs:count:` on
+NBCommandBuffer as a no-op. NBObject now absorbs any unknown selector an MTL…SPI protocol declares with a void result, through
+methodSignatureForSelector/forwardInvocation, so respondsToSelector: is unchanged and a result-returning selector still raises.
+Each absorbed selector is journalled ("I") and noted once. A host check of the mechanism passes 5/5. MoltenVK is not
+installed, so the frontend's full host test (check-native-metal-frontend-host.py) was not run. A 22H384 copy of
+audit-metal-api-surface.py ran (build/gpu-analysis/metal-api-surface-22H384.json on the Mac). There is no iOS 17 baseline to diff
+against; QuartzCore references a few public selectors the bridge source lacks (texture/state gpuResourceID, makeAliasable,
+setTileBuffer, and others), which iOS 17 apparently never exercised. Plugin CDHashes 2740c40f…c2d3, adrenoprobed 5afd02a2…084a,
+Turnip 5c058b63…44f5. The trust bundle is 3af40826c758edee9b7019499e61c09a1ec390dd7411cc330cf84e5a2d72879c (allowed in Mac
+UniXNU d99aa94). The GPU addon has 9 files, 12,173,576 bytes. Payload 738b4b40…53bf1, boot image
+`build/boot/blueline-unixnu-mu-simplefb-xnu31b-gpu.img` c9ef18de14bc2bb3060b02a14c87b0cf449d566836ae92472a80420e60ac9b97,
+archive `build/share/blueline-run40-kernel31b-gpu.7z` 479d0ec0f85c57778400ad2196af27f291cb772b5c748b1bf170764f7f2850a9.
+Tools added on the Mac: `~/blueline/ios18-tools/objc_class_size.py` and `dsc_disasm.py` (read the 22H384 cache in place).
