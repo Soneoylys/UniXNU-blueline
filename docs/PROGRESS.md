@@ -1440,3 +1440,16 @@ recorded in Sdm845GpuState and shown on screen ("rsc stop .. start .."). The GMU
 Run 37 (kernel 29 3237ded4c8d567b7d5d790081ecdceb1d1fd06e6ee42338a0da51cfc076965ff): payload 08de6a79…eab9, boot image
 `build/boot/blueline-unixnu-mu-simplefb-xnu29-gpu.img` 0093799a5a103fb0e82a383672a7c582a6367d7dfa660e2bad1fc80853b23a6d,
 archive `build/share/blueline-run37-kernel29-gpu.7z` f37061fb664fdde132e112c85903a2d953a16e3818e84953b99cbbfa7e91400f.
+
+### Run 37 result and prepared run 38 (2026-10-28)
+
+Run 37 (kernel 29), photo: the GPU RSC stopped (`rsc stop 1 1010006`, STATUS0 bit 16) and started (`start 1 3`, ACK bit 1).
+The GMU firmware loaded into ITCM (ph 6, gmu+3000), started (ph 7) and passed its boot handshake. The GX/MX rail vote (ph 9)
+and SPTP (ph 10) completed. HFI (ph 11): `kit 4 ph 11 w2 +14600 =1`. HFI_CTRL_STATUS (0x5180) read 1 (ready), but poll()
+checked the deadline before the value, and the single CPU had been away past 10 ms. UniXNU-sdm845-common f048c75: the value is
+checked first, as in Linux read_poll_timeout. The shared AdrenoFirmware HFI startup loop does the same after a reply (not
+changed: its budgets are 100 ms per command and 1 s in total).
+
+Run 38 (kernel 30 a067f16b6936acd2b3174d8fbd271369cc8459d4d3051fa1c6116b138fa99828): payload 46563761…4f8d, boot image
+`build/boot/blueline-unixnu-mu-simplefb-xnu30-gpu.img` 6e1587375e63039d3612eff618d7c9cc8f1ad6709968f2314462ba0210cb418d,
+archive `build/share/blueline-run38-kernel30-gpu.7z` 78274b30911c595aa4f85651a2fa0fe985e91db4eb4097475d80d59b20ce819d.
