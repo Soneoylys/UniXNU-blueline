@@ -1273,6 +1273,8 @@ Built on the Mac, all with the resolved tree's XNU recipes and -Werror:
 - `package/build-blueline-kernel-archives.sh` merges the archives XNU_NATIVE_ADRENO / XNU_NATIVE_LEGACY_DISPLAY link.
 - Turnip (UniXNU Darwin KMD, pinned Mesa) builds for iOS: 17,878,744 bytes.
 Kernel 21 (defconfig NATIVE_ADRENO + NATIVE_LEGACY_DISPLAY, display/GPU boot args): first link failed only on three
-optional sheng hooks (boot_log_export_put, native_ufs_dpu_map/state), now defined; relink in progress.
+optional sheng hooks (boot_log_export_put, native_ufs_dpu_map/state), now defined. Kernel 21 links:
+`kernel-k21.macho` SHA256 24112201286b5169a4e27d3672e3b3cd875d20bea722ac69cb65fca9a6383582; accelerator and display
+bindings re-checked against it (PASS).
 Still to do: Metal plugin (Rust/LLVM toolchain on the Mac), GPU addon, owner trust bundle
 (`package/make-blueline-trust-bundle.py`), payload and boot image.
