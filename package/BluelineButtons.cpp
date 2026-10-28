@@ -27,6 +27,8 @@ kern_return_t OSKextLoadKextWithIdentifier(const char *);
 // digitizer collection and never reads these.
 volatile uint32_t native_touch_seq, native_touch_count, native_touch_hid_reports;
 volatile int native_touch_xs[12], native_touch_ys[12], native_touch_ids[12];
+// The kernel links statically, so NativeHidInput's weak reference still needs a definition: no touch producer to notify.
+void native_touch_set_sink(void (*)(void *), void *) {}
 // [0] stage (1 arbiter, 2 HID kexts, 3 IOHIDResource, 4 class registered, 5 device started, 6 polling; negative: the step that
 // failed), [1] arbiter version, [2] PON APID, [3] IOHIDFamily load, [4] IOHIDEventDriver load, [5] key changes, [6] pressed mask,
 // [7] read errors

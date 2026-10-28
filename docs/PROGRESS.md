@@ -1657,3 +1657,32 @@ The owner saw the status text vanish at about 2 minutes, then a black screen. Th
 Conclusion: the black screen is the idle dim, not a GPU fault. Only one frame reached the panel before it went dark, and
 the photo shows it as black. Its content is unknown: the PreBoard lock view is mostly black, and the failed pipeline may have
 dropped its text. The two readback Data images on the Mac (runs 39/40) are detached.
+
+### Run 41 prepared (2026-10-28): kernel 32 with the power and volume-down keys
+
+The owner chose a kernel power-button driver over a keep-awake workaround.
+- `package/BluelineButtons.cpp` reads the PM8998 PON real-time status (SID 0, peripheral 0x08, register 0x10: bit 0 KPDPWR,
+  bit 1 RESIN) every 20 ms. It uses EXT_READL on the SDM845 PMIC arbiter v5 observer channel (core 0xc440000, obsrvr
+  0xe600000, cnfg 0xc40a000; APID from the core map table, preferring the EE-0 owner). This is the same read-only access as
+  BluelineKeyInputDxe and pixel3-ios 0104-blueline-keys.patch. Nothing in the PMIC is written. Volume up is not read.
+- The keys reach iPadOS through ShengHidInput 5f3a37c (`NativeHidInput`, report 2: Consumer Power and Volume Decrement)
+  on the original IOHIDFamily-2115 and IOHIDEventDriver kexts of the 22H384 kernelcache. The startup is sheng's
+  HidInputProbe sequence: load the kexts, wait for IOHIDResource, register the class late, then init/attach/start. It runs
+  on a thread launched from `native_legacy_display_late_probe`. `blueline-keys=0` turns it off.
+- The 22H384 IOHIDDevice ABI was found with `~/blueline/ios18-tools/hid18_abi.py` on the Mac and matches 21H461: 207 vtable
+  slots, pure slot 180, the same 18 IOService overrides, 0xd0 bytes. Kernelcache addresses: vtable 0xfffffff006d64688, C2
+  0xfffffff005c7ae5c, D2 0xfffffff005c7ae80, gMetaClass 0xfffffff007be2960 (prelinked at -0x1000000).
+  `package/build-blueline-hid.py` checks each one structurally against the kernelcache. It also checks the 52 bindings in
+  the built kernel (both kernel 31 and kernel 32) and that the compiled vtable owns only slots 0 1 7 14 86 87 111 171 173 180.
+- The UFS log gains a `[keys]` line: stage (6 = polling with the HID device up), arbiter version, PON APID, kext loads, key
+  changes, mask, read errors, HID start and report counts.
+- Run 40's metal2vulkan errors (metallib LibraryKind(1) from SafariSharedUI, `path_blit` ColorAttachment 2) come from the
+  bridge's warm-up pass (prime.log, pipelines.log in backboardd's m2v cache). That pass compiles system metallibs with
+  guessed descriptors. Every pipeline QuartzCore asked for compiled. The warm-up is marked done (`prime-done`) and the
+  VkPipeline cache is populated, so it should not repeat. No bridge change.
+- Build fixes along the way: the Mac copy of the scripts needs LF line endings. NativeHidInput's weak
+  `native_touch_set_sink` needs a definition in a static kernel link, so a no-op is provided.
+Kernel 32 9c6a027c…e39f; payload b58818f0…2ffc (plugin, trust bundle, Data ramdisk and arguments as run 40); boot image
+`build/boot/blueline-unixnu-mu-simplefb-xnu32-keys.img` ef7f0c2e3051a96ed71a2ede9cc6d8644037fe4dc9186ff6fe267cafd12742ee;
+archive `build/share/blueline-run41-kernel32-keys.7z` 9d03949ba5db2d5de6b7d2fbf3b33a5a888ceba699de8e78c03bd32e89c4d991.
+Not yet run on the phone.
