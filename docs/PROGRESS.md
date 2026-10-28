@@ -1810,3 +1810,26 @@ Kernel 36 1ae7729c…12be. Payloads: eight cores 18e67e10…6e56, one core aa3ba
 `blueline-unixnu-mu-simplefb-xnu36-8cpu.img` 9386f000a6dd38388faa220c5c9372b375ecae6f554332666fda65fe16cbb2bb,
 `blueline-unixnu-mu-simplefb-xnu36-1cpu.img` 07f03eea20b5365cf971900343e3caef77ffe7949e1571ffc5fb9e4c810d4024.
 Run 44 replaces run 43 (it contains everything run 43 had).
+
+### Run 43 eight-core dump and run 44 result; run 45 prepared (2026-10-28)
+
+Owner, run 44 (eight cores): SpringBoard loads (it did before too), no touch or very slow, power does not respond, black after a
+while; no panic. No run 44 dump yet. The Desktop's `blueline-readback.7z` (a9ff8c84…8325, 13:17, before the run 44 images) is
+run 43's eight-core boot 2d95bdab: 297 rounds, 512 s, 0 write errors, no panic in that boot. Decoded into
+build/blueline-logs/blueline-2d95bdab.
+- **The display queue stops for good at about 98 s.** By 92 s: 6 GPU offers (`[kick]` reason 9), 6 GPU completions, 6
+  retirements, but 7 transfers, all with status 0. From then on every kick exits with reason 2 (still transferring), 33 times by
+  512 s, while backboardd's swaps keep being validated (36). The 7th transfer is a blank swap (no surface; NativeLegacyDisplay
+  fills the GOP black). It then calls `finishTransfer(request)` without force, and `retireSwap` retires only with boot-arg
+  `offline-legacy-retire=1` or `offline-legacy-cpu-present=1`. Blueline had neither, so `transferred` stayed set. sheng,
+  fajita and dipper all pass `offline-legacy-cpu-present=1` ("retire each swap after its copy"). Only retireSwap reads it.
+- **The power key works in iOS.** Each press is followed within 0.1 s by backboardd's `request_power_change … powerstate 1`
+  (mach 214.8, 361.4 and 531.1 s, after display-off at 179.2, 289.7 and 436.0 s). The screen stayed black because the queue
+  was stuck, not because the key was ignored. `[keys]` 26 changes, 26 accepted reports (run 43's Telephony device).
+- `[cpu]`: all eight cores take timer interrupts (55k–95k each), but `sgi` is 0 on every core and `ipi sent` stays 8 for the
+  whole boot. Not explained yet (a counting gap, or the IPIs go another way). sheng passes `armcpu-spi-ipi=1`; not tried here.
+
+Run 45: kernel 36 unchanged, board.toml adds `offline-legacy-cpu-present=1`. Eight-core payload only
+(`~/blueline/run45-build.sh`) abb5b49a…4e2c, boot image `blueline-unixnu-mu-simplefb-xnu36b-8cpu.img`
+8cc8a352437af88049ed6ec8088ee183ac1ee3438786271cf861578576f87a00 (fd 3e744b3c…), folder build/share/run45.
+Expected: the picture keeps updating after a blank frame, and power brings it back. Touch is unknown until a dump shows `[touch]`.

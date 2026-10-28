@@ -143,6 +143,8 @@ kernel_args = [
   "offline-legacy-pm=1",
   "offline-legacy-validate=1",
   "offline-legacy-transfer=1",
+  "offline-legacy-cpu-present=1",    # retire each swap after its copy (as sheng, fajita, dipper); without it a blank swap
+                                     # never retired and the queue stopped for good (run 43: reason 2 from 98 s on)
   "offline-legacy-phase=4",
   "offline-legacy-unit-scale=3",     # 1080x2160 pixels -> 360x720 points, an iPhone-sized screen
   "sheng-fb-gpu=1",                  # frames go to the GPU hand-off presenter
