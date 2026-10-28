@@ -1406,3 +1406,19 @@ slot 1 were picked. Then `FAIL 4 GMU context: e00002ca` (kIOReturnIOError from N
 program and route report is only in the kernel log; awaiting the UFS log readback. The next build shows that report on
 screen. Later the render server's frames (disp 4, gpu-ref 3, xfer 4) cleared the status rows; only line 0 kept being redrawn
 (log 2, rounds rising). The status thread now redraws every row.
+
+### Run 35 readback and prepared run 36 (2026-10-28)
+
+The UFS log of run 35 (boot id 1f95fe75) has 169 rounds over 314 s and no write errors. The status slots show the failure,
+but user space ("ustate: caching container path") had filled the 128 KiB message buffer, so the report line was gone. Kernel
+27 (aa2a7fe, never run) added a driver log ring to every slot and the full readback on screen. The /var readback
+(`readback.sh 35`, boot 3A645CF5) has the line: `GMU context bank 1 slot 1: step 4 status 0xE00002CA program 0/5 route 10/0
+ttbr0 0x10000C0702000`. Step 4 is Attach. The context bank programmed and enabled (status 0, phase 5); ArmSmmu4KAttachStreams
+returned Busy (10) from its scan, which takes only a slot whose S2CR is FAULT (Linux's arm_smmu_device_reset state for unused
+entries). The firmware left another value behind slot 1's invalid SMR.
+
+Run 36 (kernel 28 f75f131572ad4c80194587bc380854ed2580a2be9d769642e13a9e66f0fdef2e): `faultSlot()` resets an unused slot
+(SMR invalid) to S2CR FAULT before an attach, falling back to a BYPASS write that arm-smmu-qcom says the SDM845 hypervisor
+stores as FAULT. Every SMR/S2CR goes to the log ring; a GPU context failure goes on screen. Payload def9f0f4…3491, boot image
+`build/boot/blueline-unixnu-mu-simplefb-xnu28-gpu.img` 6e6ecdc24f1274630af05fa1392065e1890042fd2b344f89baffac9797c1fbe7,
+archive `build/share/blueline-run36-kernel28-gpu.7z` b4645054f15e24d9d67e6174e4144b50d6dc55d2629336f94db2cb2b43ab319b.

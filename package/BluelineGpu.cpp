@@ -330,6 +330,29 @@ bool bankFree(volatile uint8_t *smmu, unsigned bank) {
 }
 // Keep the preferred slot/bank when free, else take the next free one (ID0.NUMSMRG, ID1.NUMCB); `avoid` is a slot or
 // bank already chosen for the other context. Reports the choice.
+// ArmSmmu4KAttachStreams takes only a slot whose S2CR is FAULT, the state Linux's arm_smmu_device_reset leaves every
+// unused entry in. The Pixel 3 firmware leaves other values behind invalid SMRs (run 35: attach Busy, route status 10), so
+// an unused slot (SMR invalid) gets S2CR = FAULT first. arm-smmu-qcom notes that on SDM845 the hypervisor may ignore a
+// FAULT write and store a BYPASS write as FAULT, so BYPASS is the fallback. Both readbacks are reported.
+bool faultSlot(const char *who, unsigned slot) {
+    volatile uint32_t *r = reinterpret_cast<volatile uint32_t *>(gVa[WinSmmu]);
+    constexpr uint32_t kFault = 2u << 16, kBypass = 1u << 16;
+    if (r[0x800 / 4 + slot] & (1u << 31)) return true;   // a valid SMR is the attach's own business
+    const uint32_t before = r[0xc00 / 4 + slot];
+    if (before == kFault) return true;
+    r[0xc00 / 4 + slot] = kFault;
+    __asm__ volatile("dsb sy" ::: "memory");
+    const uint32_t fault = r[0xc00 / 4 + slot];
+    uint32_t bypass = 0;
+    if (fault != kFault) {
+        r[0xc00 / 4 + slot] = kBypass;
+        __asm__ volatile("dsb sy" ::: "memory");
+        bypass = r[0xc00 / 4 + slot];
+    }
+    gpuLog("%s S2CR%u: %08x, FAULT write -> %08x, BYPASS write -> %08x\n", who, slot, before, fault, bypass);
+    screen("%s s2cr%u %x -> %x / %x", who, slot, before, fault, bypass);
+    return fault == kFault || bypass == kFault;
+}
 bool pickSmmu(const char *who, unsigned &bank, unsigned &slot, unsigned avoidBank, unsigned avoidSlot) {
     const volatile uint32_t *r = reinterpret_cast<const volatile uint32_t *>(gVa[WinSmmu]);
     const unsigned smrs = r[0x20 / 4] & 0xff, banks = r[0x24 / 4] & 0xff;
@@ -339,7 +362,7 @@ bool pickSmmu(const char *who, unsigned &bank, unsigned &slot, unsigned avoidBan
     const bool ok = smrFree(gVa[WinSmmu], slot) && slot != avoidSlot && bankFree(gVa[WinSmmu], bank) && bank != avoidBank;
     gpuLog("%s SMMU bank %u slot %u (wanted %u/%u; %u banks, %u SMRs)\n", who, bank, slot, wantBank, wantSlot, banks, smrs);
     screen("%s smmu bank %u slot %u of %u/%u", who, bank, slot, banks, smrs);
-    return ok;
+    return ok && faultSlot(who, slot);
 }
 unsigned gGmuBank = ~0u, gGmuSlot = ~0u;
 // Every SMMU register access is one 32-bit volatile load or store. The SDM845 hypervisor traps the SMMU and emulates
@@ -359,7 +382,7 @@ void smmuSurvey(volatile uint8_t *smmu) {
     for (unsigned i = 0; i < smrs && i < 32; ++i) {
         const uint32_t smr = r[0x800 / 4 + i];
         const uint32_t s2cr = r[0xc00 / 4 + i];
-        if (smr & (1u << 31)) gpuLog("SMR%u=%08x S2CR%u=%08x (in use)\n", i, smr, i, s2cr);
+        gpuLog("SMR%u=%08x S2CR%u=%08x%s\n", i, smr, i, s2cr, smr & (1u << 31) ? " (in use)" : "");
     }
 }
 
@@ -455,7 +478,11 @@ bool gpuContext() {
     const IOReturn status = gGpuCtx.bringUp(&gSmmuIo, bank, 2, slots, sids, nullptr, &report, 1, NativeAdrenoRingA6xx);
     gpuLog("GPU context bank %u slot %u: step %u status 0x%x program %u route %u/%u spans %u\n", bank, slot,
           report.step, status, report.program_status, report.route_status, report.routes_verified, report.spans);
-    if (status) return fail(10, status, "GPU context");
+    if (status) {
+        screen("step %u prog %u rt %u/%u spans %u", report.step, report.program_status, report.route_status,
+               report.routes_verified, report.spans);
+        return fail(10, status, "GPU context");
+    }
     for (unsigned i = 0; i < GpuBufferCount; ++i) {
         const NativeAdrenoMemory &b = gGpuCtx.buffer(i);
         if (b.spanCount() != 1) return fail(10, 0x20 + i, "GPU buffer span");
