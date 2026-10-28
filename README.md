@@ -33,16 +33,16 @@ SP1A.210812.016.C2), extracted with `scripts/extract-blueline-xbl.py`, and the m
 | `bluelinePkg` firmware volume builds on Windows (three variants) | done |
 | Boot images for `fastboot boot` (header v1, appended DTB, text_offset 0x80000) | done |
 | UniXNU menu, payload volume and keys on the phone (Mu-only firmware) | **works** (runs 2-4); the stock-driver variants crash |
-| Format 2 on UniXNU-sdm845-common | iPadOS 18.7.11; latest delivered candidate is run 39 / kernel 31, built on the owner's Mac |
+| Format 2 on UniXNU-sdm845-common | iPadOS 18.7.11; latest candidate is run 48 / kernel 39, built on the owner's Mac; phone result pending |
 | Boot, root and Data | one-core userland runs; writable `/var` survives reboot (run 29 readback) |
-| CPU | keep `cpus=1 sheng-smp=0` until SpringBoard; eight-core stability and actual clock measurements remain pending |
+| CPU | run 48 retains the run-47 eight-core payload and SGI-1 IPIs; stability/delivery still need readback; board defaults remain one core |
 | Kernel display | 22H384 GopFramebuffer registers a main CADisplay (run 30); GPU-only presentation is not yet verified |
-| A630 / Metal | CP/fence/ZAP and Metal-device creation pass; run 39 backboardd aborts on missing `setResponsibleTaskIDs:count:` during QuartzCore command-buffer setup; no presented frame |
-| Input | firmware keys work; kernel touch/buttons are not implemented |
+| Rendering | owner selected software rendering for current bring-up (`CPU_COPY=1`); GPU work is deferred |
+| Input | kernel button/touch paths are implemented; input and wake behavior need current-candidate readback |
 
-Run 39 readback shows 1,266 seconds of logging with zero writer errors, but no swap/transfer/GPU completion activity.
-Seven backboardd reports identify the same missing Metal command-buffer selector; this is the next compatibility target.
-The final `ph 19 r gpu+2018` marker is not a machine-hang diagnosis. Preserve the existing root and Data seed/geometry.
+Run 47 reset to Android with watchdog boot reason after about a minute at the handoff screen. Run 48 removes the new
+active interrupt probe from logger startup while retaining SGI 1 and the rest of that candidate. Full build, binary,
+payload and archive checks pass; a phone test is still needed. Root, Data seed/UUID and store geometry are unchanged.
 
 [docs/PROGRESS.md](docs/PROGRESS.md) has the variants, the test procedure and what to report.
 [docs/BOOT-ARGS-AUDIT.md](docs/BOOT-ARGS-AUDIT.md) compares the Sheng/Pocket Max startup settings and Pixel 3 CPU evidence.

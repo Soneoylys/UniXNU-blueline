@@ -1897,3 +1897,224 @@ cache 26ed8386…, no GPU arguments, `offline-legacy-cpu-present=1`, fajita copy
 archive `build/share/blueline-run47-kernel38-swrender.7z` 7f1bc50c859a1c3ea0e93303271ed9ec8f8a0c7212eb136042e53963bd1195d2.
 What to read in its dump: `[cpu]` SGI counts above 0 on every core and `ipi sent` rising; `[sgi]` g1 bit 1 set. If SGI 1 also fails, the
 next step is `armcpu-spi-ipi=1` (sheng's software-pended SPI IPIs).
+
+### Report after run 47 (2026-10-28): handoff screen, about one minute, watchdog reset to Android
+
+Owner: "kernel boots, then phone reboot without kernel panic message". Presumed run 47/kernel 38 from the latest
+handoff; exact filename/hash remains unconfirmed. Owner then clarified the last screen is "hand off to kernel"
+("purple screen if enabled color bars"), stuck there for about a minute, then reboot into Android. No visible panic.
+This is a silent-reset observation, not proof of a particular panic or reset source. The Desktop readback still has timestamp
+13:17 and belongs to the older run-43 evidence; it must not be treated as a new run-47 capture.
+
+Owner subsequently collected Android's boot reasons after the reset:
+
+```text
+adb shell getprop ro.boot.bootreason
+watchdog
+adb shell getprop sys.boot.reason
+watchdog
+```
+
+This establishes Android's watchdog-reset classification, not the particular watchdog source or the failure that
+caused it to expire. The two properties may derive from the same boot-reason record, not independent measurements.
+An unseen panic/hang before watchdog expiry remains possible. No new kernel/UFS capture accompanies these outputs.
+
+Last confirmed visible stage is loader handoff. The current board disables colour bars; the colour analogy is not new
+evidence that the magenta XNU entry probe actually ran in this attempt. Per the UniXNU handoff/green-bar guide, stale
+handoff output alone does not identify where execution stopped. Android now reports watchdog reset, consistent with
+the roughly one-minute interval, but neither the timing nor properties locate the preceding stall. Do not disable or
+extend the watchdog, change watchdog policy or enable colour/reset probes merely to mask or reproduce this failure.
+
+Source inspection identifies a new regression candidate: `blueline_log_start()` calls `armcpu_sgi_selfprobe()` before
+`kernel_thread_start(writer, ...)`. The pinned SoC implementation sends all 16 SGIs, consumes acknowledgements, and
+falls back to `ICC_SGI0R_EL1`, `ICC_HPPIR0_EL1`, `ICC_IAR0_EL1` and `ICC_EOIR0_EL1` (Group 0). The earlier run-11-to-16
+correction records a silent reset from another Group-0 register access (`ICC_IGRPEN0_EL1`). This makes the new active
+probe a plausible cause, but does not establish which access reset this run. If it fails before the writer starts,
+the UFS window may still describe an older boot. No probe or reset was reproduced during this inspection.
+The probe is reached from the display's early IOKit registration hook, not the loader. Its removal is a precaution;
+there is no current evidence yet that this boot reached that hook.
+
+Local precautionary correction in `package/BluelineLog.c`: remove the automatic probe, replacement self-IPI and obsolete
+`[sgi] probe` output. Keep the passive `[cpu]` timer/SGI/IPI counters unchanged. Leave `armcpu-ipi-sgi=1`, CPU count,
+software-rendering settings, trust cache, root image, Data seed/UUID and store geometry unchanged. No SoC source or
+feed pin changed. Do not switch to SPI IPIs on the basis of an unobserved `[sgi]` probe result.
+
+This source correction is not yet a rebuilt kernel/payload/boot image and has no phone qualification. A successor must
+rebuild the archive containing `BluelineLog.c` (not just the payload), with `CPU_COPY=1`, then kernel and payload while
+preserving run 47's Apple trust cache. After the corrected boot, inspect passive `[cpu]` counts and the latest UFS
+boot ID/rounds before drawing a CPU/IPI conclusion. Capture the current log via TWRP before another XNU boot if possible;
+the owner has now supplied the timing, last screen and Android destination. A fresh dump and exact image identity are
+still needed; an old UFS header would not prove a particular pre-logger stall location.
+
+Host checks: `git diff --check` passes (line-ending warnings only); the porting-record validator passes all 13 areas.
+A source-invariant check confirms no active probe/replacement-self-IPI reference, preserved passive CPU counters/writer
+startup and unchanged `armcpu-ipi-sgi=1`. On the Mac, compiled a temporary copy of BluelineLog.c using
+`Sdm845Gpu/build-native.py`'s `command()` with the resolved `bsd_init.o.json` XNU C recipe, then audited the ARM64/iOS
+object and ran `xcrun nm -u`: no probe/selftest imports; all three passive CPU counter imports remain. Artifacts and
+full command: `~/blueline/run47-logfix-check-7cem2lfz/{compile.log,check-report.json,BluelineLog.o}`.
+Source SHA-256 `5fd6a213ce2a432911f914679b565360268ac0dd0d23116fab34214130207fd4`; object
+`fa3b69a5e80c8813ebab8b0e216eea19907249a739330ab6150f37a80658a039`. This is an isolated object check, not a rebuilt
+archive/kernel or a phone result. The active Mac source checkout was not overwritten.
+
+### Watchdog-attempt readback (2026-10-28): new capture, likely earlier boot's retained log
+
+Owner supplied a new `C:\Users\user\Desktop\blueline-readback.7z` (file timestamp 15:57:11, 42,537 bytes). `7z t` passes;
+archive SHA-256 `68e57b1b5a4e236147822c3f5018fdf09ee5927ba313bc2f12cc74fbf7252013`. It contains only the 33,554,432-byte
+UFS window `blueline-log.bin`, SHA-256 `611eba671e2304fbddb2156e0394dfaadcc853017f34fb5212cd6fa47cb07271`.
+Extracted separately under `%LOCALAPPDATA%\Temp\opencode\readback-watchdog-68e57b1b`; previous decoded evidence is untouched.
+
+Decode command:
+
+```powershell
+python scripts/blueline-log.py C:\Users\user\AppData\Local\Temp\opencode\readback-watchdog-68e57b1b\blueline-log.bin --out build/readback/watchdog-68e57b1b
+```
+
+Decoded directory: `build/readback/watchdog-68e57b1b/blueline-1ce64c8b/`. Header: SHLOG001 v4, boot ID `0x1ce64c8b`,
+549 rounds/slots, logger uptime 1097 s, state writing, zero write errors. Ring retains slots 40-548 (80-1097 s), 509
+snapshots. This is about 18 minutes of logging, not the roughly one-minute attempt described by the owner.
+
+Captured-boot observations, **not assigned to run 47**:
+- No `[sgi] probe` line anywhere. `[cpu] ipi sent` stays 8, all eight SGI counters stay zero.
+- Timer counters on cores 1-5 continue changing through the last slot; cores 0/6 last change at logger time 82 s and
+  core 7 at 142 s. Counter stasis alone does not prove a core is dead.
+- Data state 2, zero write errors, writes reach 22221 (last counter change at 140 s).
+- `[display] a 0 1 1 1 0 0 0 0 0 0 0`: display started, no presenter (expected with GPU handoff disabled), no swap
+  validations/transfers/retirements. GPU stage 0, plugin opens/calls 0, GPU completions 0.
+- Touch event/report counters increase from 257/81 to 266/84; keys record two reports. These are retained-boot
+  observations, not qualification of input on the current watchdog attempt.
+- The 128 KiB msgbuf has userland process activity and late button messages at kernel time ~1110 s. No captured panic
+  or watchdog-expiry message identifies the latest reset; absence is not proof that no panic occurred.
+
+Checked the actual Mac run-47 binary, not just current source. Kernel `kernel-k38.macho` SHA-256
+`6e159c60633cbbe4926efce05bdd10395b592f749f8bd8fd2a6a448e78e616dc` matches its build record. `xcrun nm -g` resolves
+`_armcpu_sgi_selfprobe`, `_armcpu_ipi_selftest` and `_blueline_log_start`; strings includes `[sgi] probe ...`.
+`xcrun llvm-objdump -d --start-address=0xfffffff007a56a5c --stop-address=0xfffffff007a56c50 <kernel-k38.macho>` confirms
+the probe/selftest calls precede setting `sgi_probed` and creating the writer thread. Thus a normal logger run from
+this binary should include the probe line; the captured boot does not match that expectation or the reported duration.
+
+Leading interpretation: this is a fresh recovery capture of a previous software-render boot's log, left intact because
+the watchdog attempt did not commit a new UFS header. A different boot image is another possibility. The header stores
+no kernel/image hash, so this cannot be named definitively run 46b or used to conclude run 47's SGI-1 fix failed. It also
+does not prove the failing attempt reached the Group-0 probe; the stall remains unlocated.
+
+Next evidence: exact `.img` filename and SHA-256 used for the watchdog attempt (prepared run-47 boot-image hash is
+`e7f2c854f7b72d5a769c1d513efce800ea79cae2855fbe5ee50c7372c8bdeee9`). Do not rerun the probe-bearing image or repeat
+the same recovery capture just to reproduce this result. The local logger-probe removal remains object-checked only;
+no corrected full archive/kernel/payload/image has been prepared. No further runtime edits, phone accesses, commit or
+push during this analysis. Preserve software rendering, original Apple trust cache, root and Data seed/geometry.
+
+### Run 47 identity confirmed; two repeat attempts and exact delta from run 46b (2026-10-28)
+
+Owner's Windows `certutil -hashfile` output for
+`C:\Users\DELL\Desktop\p3\blueline-unixnu-mu-simplefb-xnu38-swrender-8cpu.img` is
+`e7f2c854f7b72d5a769c1d513efce800ea79cae2855fbe5ee50c7372c8bdeee9`, matching prepared run 47. Owner confirms using
+this latest image twice, with the same handoff-screen wait (~one minute), no visible panic and Android watchdog reset.
+This establishes a repeatable reported regression from the prior software-render image; do not keep treating wrong
+image selection as the leading explanation or ask for the same hash/timing again. It does not assign the retained
+18-minute log to either failing attempt.
+
+Comparison commands: device `git diff 8419b8e 2883f9d -- board.toml package/BluelineLog.c feeds.toml`; SoC
+`git diff f048c75 698dc78 -- drivers/ArmCpu/ArmCpu.cpp`; read-only diffs of Mac `kernel37-build.sh`/`kernel38-build.sh`
+and `run46-build.sh`/`run47-build.sh` (the current run46 script includes the run46b trust-cache correction).
+
+| Setting/path | Run 46b / kernel 37 | Run 47 / kernel 38 |
+| --- | --- | --- |
+| IPI selection | SGI 0 | `armcpu-ipi-sgi=1`; send/selftest and dispatch use SGI 1 |
+| Logger startup | allocate buffer/lock, start writer | allocate, call active SGI probe and replacement selftest, then start writer |
+| SGI-probe snapshot | absent | `[sgi] probe` emitted after calls return |
+| CPU count | eight-core payload | eight-core payload (unchanged) |
+| Rendering | CPU_COPY=1, GPU addon disabled | same software-render configuration |
+| Trust cache | original 22H384 Apple bundle | same bundle, retained explicitly |
+| Root/Data and bars | stable seed/geometry; no bars | unchanged |
+| Observed result | visible stackshot panic | repeatable silent watchdog reset, no fresh log identified |
+
+The device source diff is one new IPI argument, logger probe invocation/output, SoC pin and progress documentation.
+The SoC diff changes IPI selection; the probe function already existed but the board newly invoked it. Kernel build
+scripts differ only in labels and kernel output names; run47 rebuilds archives/kernel and packages the new kernel.
+No change disabling the panic screen appears in these compared sources/scripts.
+
+The new active probe is the most specific risky regression candidate: Group-0 access and interrupt acknowledgement
+happen before the logger thread exists. SGI-1 delivery also changes earlier kernel behavior, so the two effects are not
+yet separated on hardware. Lack of panic output cannot establish that no panic was attempted; an earlier trap/deadlock
+or failure in panic rendering could prevent it before watchdog expiry. Do not assume an intentional panic-policy change.
+Next controlled comparison is the local automatic-probe-removal patch with SGI 1 and all other inputs unchanged; it has
+passed isolated object compilation but no corrected full image has been built. No new runtime edit, build, commit or push
+for this comparison.
+
+### Run 48 prepared (2026-10-28): kernel 39, logger probe removed, software rendering
+
+Owner requested investigation/fix, compilation and a download link. Removed the active SGI/Group-0 probe and its
+replacement selftest from `package/BluelineLog.c` startup; passive `[cpu]` timer/SGI/IPI counters remain. This is the
+only intentional runtime source change relative to run 47. SGI 1, eight cores, software rendering, original Apple
+trust cache, root, packed Data seed/UUID/geometry, firmware, panic screen and no-bars policy remain unchanged.
+This removes a hazardous regression candidate; it is not yet evidence that the hardware watchdog issue is resolved.
+
+Provenance: device `2883f9d775029ca80b3078203620b3c498e3e294` plus the recorded uncommitted logger/documentation edits;
+Mac UniXNU `d99aa9438db21a72fd8fe0b880fec3b9dd3efdba`. The Mac SoC source directory has no Git metadata; its ArmCpu.cpp
+SHA-256 `b4e9d3f0ccb13f600231908666436873287da072625d5351ed2a5056d55e1bde` matches the local pinned SoC `698dc78`.
+Patched logger LF SHA-256 `5fd6a213ce2a432911f914679b565360268ac0dd0d23116fab34214130207fd4`. Backed up the previous
+Mac logger and board under `~/blueline/run48-probe-fix-backup-20261028/`; verified baseline hashes before syncing only
+the logger. Earlier images/sources and unrelated Mac changes were not discarded.
+
+Build recipe: ignored local `build/run48/run48-build.sh`, staged as `~/blueline/run48-build.sh`. It verifies the seed,
+trust cache, board and previous kernel hashes, backs up prebuild outputs/reports, then runs:
+
+```sh
+CPU_COPY=1 bash ../UniXNU-blueline/package/build-blueline-kernel-archives.sh \
+  out/blueline/ipados-18.7.11-22H384/blueline/tree \
+  out/blueline/ipados-18.7.11-22H384/blueline/kernel/kernel-k38.macho
+./unixnu defconfig blueline_defconfig -D ../UniXNU-blueline
+./unixnu status --json
+./unixnu build kernel
+# Save kernel.macho as kernel-k39.macho; temporarily apply run-47's eight-core payload override.
+./unixnu build payload --kernel out/blueline/ipados-18.7.11-22H384/blueline/kernel/kernel-k39.macho \
+  --uefi ~/blueline/uefi-font \
+  --data-ramdisk ~/blueline/ios18-tools/blueline-data/blueline-data.dbr \
+  --trust-cache ~/blueline/ios18-tools/trust/22H384-static-system.bundle
+```
+
+Mac logs/reports: `~/blueline/run48-artifacts/` (`archives39.log`, `kernel39.log`, `payload39.log`, inputs/status,
+payload/kernel reports); old outputs in `prebuild/`. The script restores board.toml byte-for-byte on exit, verified
+SHA-256 `663743b521490897c3e27313661d4fb86f1d8cf4bc39a982c4f1369fb53fd074`. GPU work stays deferred.
+
+Host results:
+- ARM64/iOS/-Werror archive builds pass; 22H384 accelerator/display/HID binding checks pass, CPU copy explicitly kept.
+- Kernel and prelink succeed. Comparing the old/new merged Adreno archive's 42 object members (43 entries including
+  the symbol index), **only BluelineLog.o differs**. Passive counter imports remain. The final kernel's
+  `_blueline_log_start` disassembly calls `kernel_thread_start` without calling either probe helper. Audit and disassembly:
+  Mac `run48-artifacts/audit/`; copied object-hash audit to local `build/run48/audit-report.json`.
+- Payload kernel arguments, trust-cache hash, Data seed hash, GPU-disabled state, panic-screen setting and payload size
+  match run 47. Extracted actual FAT kernel/ADT/trust/Data files match report hashes, not just staging-path claims.
+- Parsed old/new embedded ADTs: eight measured CPU affinities/topology and all board/memory properties are identical;
+  only `/chosen/random-seed` differs. Local comparison: `build/run48/adt-comparison.json`.
+- Original Apple trust SHA-256 `26ed8386ab1984442d2e65679bc4ed4544ba8a71dcfccdecaf39e5ceb6ef7ce0`; packed Data seed
+  `e3b1ea02c0baea7e1c085b6734178b23966e998c26b256cb1423416a5d1835fd` unchanged. No root or Data-store write on phone.
+- Payload patching keeps panic text (`--panic-screen --no-bars --no-reset`); no diagnostic reset or watchdog-policy change.
+
+Windows packaging command (also in ignored `build/run48/package-run48.ps1`):
+
+```powershell
+python scripts/package-blueline-boot.py --fd build/firmware/blueline-mu-simplefb-debug.fd --ramdisk build/run48/payload-k39-8cpu.img -o build/boot/blueline-unixnu-mu-simplefb-xnu39-swrender-8cpu-probeoff.img
+```
+
+The packer verifies header v1/text_offset 0x80000 and round-trips shim/firmware, appended DTB and complete payload.
+Firmware SHA-256 remains `3e744b3cbc5de99f44d6ab85a1c433f557804173b8bdb504a9abfaf33210b7f2`. Run-47 image hash remains
+`e7f2c854f7b72d5a769c1d513efce800ea79cae2855fbe5ee50c7372c8bdeee9`.
+
+| Artifact | Bytes | SHA-256 |
+| --- | ---: | --- |
+| Mac `kernel-k39.macho` | 56926208 | `70e4dccb6ef0ad05f79997f702d234e01da29f73a0be7a0aa64ebbd49cfa249b` |
+| Panic-patched FAT `kernel.macho` | 56926208 | `70b4a4d2f679054b34e22367fd88ce07c2765382341698db0e11bef86ea9374c` |
+| `build/run48/payload-k39-8cpu.img` | 83886080 | `a4769b3bcd345cbf1771cb543b8a3fb683fb7287f33d9e2f678b53e1b9ede409` |
+| `build/boot/blueline-unixnu-mu-simplefb-xnu39-swrender-8cpu-probeoff.img` | 84951040 | `54d3ab2130ab31f341f505f658d7cdc1638ca43ac9e7e5666dc73aeb8317d481` |
+| `build/share/blueline-run48-kernel39-swrender-probeoff.7z` | 8593810 | `87708811a7cde90635bdeab4db30fda74480955ca07b9cb0f7bf79b2366c548d` |
+
+Delivery bundle has four files: image, `blueline-dump.ps1`, `TEST-RUN48.txt`, `SHA256SUMS`. Manifest and `7z t` pass.
+Complete localhost and external-share downloads match the archive hash. Private share address is kept only in ignored
+HANDOFF.md and the owner-facing response, not tracked documentation. No new server configuration, commit or push.
+
+Phone results are **pending**: boot/watchdog recovery and eight-core IPI delivery are not yet qualified; storage inputs
+are preserved and host-checked; display/input need the run-48 capture; GPU is deliberately off. Owner should boot once,
+then capture UFS through TWRP before another XNU boot. Read passive `[cpu]` counts and a new boot ID; absence of the old
+`[sgi] probe` line is intentional. If a watchdog recurs, collect Android boot reasons before recovery and retain the
+last screen/timing; do not re-enable the probe or keep repeating the failing candidate.
