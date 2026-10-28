@@ -1322,3 +1322,11 @@ the real display: `StartWindowServer: initial main screen size:{1080, 2160} scal
 2160 framebuffer width 1080 height 2160 scale 3`, `layer position 540 1080 bounds 0 0 1080 2160`. No change needed;
 the iPhone-sized scale 3 is in effect. Tools: scratchpad dsc_find.py / dsc_xref.py (direct subcache search; Xcode's
 dsc_extractor does not read this cache format).
+
+### Run 31 result (2026-10-28): panic on display leaf 355 after a swap wait timeout
+
+Photo: `NativeLegacyDisplay: leaf=355 caller=fffffff004c1ecf8 stage=10 @BluelineDisplayProbe.cpp:125`. The caller is
+IOMobileGraphicsFamily `swap_wait_gated` (kernelcache 0xfffffff005c1ecf8): after `CommandWake didn't happen even after 5
+seconds ... cancelling swaps` it logs `swapId, options, noBlock, HPD, DPLink (= slot 355), TimingEnable, PowerStates-Cntr,
+Display` and then calls slot 356. So a client's swap never retired: the GPU hand-off did not complete the frame. Fix for
+the next build: slot 355 `dpLinkState()` returns 0 (abstract leaf, log value only). The GPU stage is in the /var log.

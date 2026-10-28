@@ -106,6 +106,7 @@ named = {184: ' virtual bool isMainDisplay();\n', 188: ' virtual IOReturn getDot
          298: ' virtual void kickSwapQueue();\n', 303: ' virtual void completeCurrentSwap();\n',
          304: ' virtual bool validateSwap(const OriginalLegacySwapRequest *);\n',
          309: ' virtual bool getRefreshAttributes(uint64_t *,bool);\n',
+         355: ' virtual uint32_t dpLinkState()=0;\n',
          347: ' virtual IOReturn collectCompletionReports(uint32_t,void *,uint32_t *,uint32_t)=0;\n'}
 for i in range(168, SLOTS):
     if i in named:
@@ -131,6 +132,11 @@ for old, new in leaves.items():
     if source.count(f'    LEAF({old})\n') != 1:
         fail(f'LEAF({old}) not found once')
     source = source.replace(f'    LEAF({old})\n', f'    LEAF({new})\n')
+# Slot 355 (abstract; 21H461 345) only feeds the DPLink field of swap_wait_gated's timeout log (run 31 panic): no
+# DisplayPort link on the internal GOP panel.
+if source.count('    LEAF(355)\n') != 1:
+    fail('LEAF(355) not found once')
+source = source.replace('    LEAF(355)\n', '    uint32_t dpLinkState() override {return 0;}\n')
 cpu_copy = '        IOMemoryMap *source=memory->map(kIOMapAnywhere|kIOMapReadOnly);\n'
 if source.count(cpu_copy) != 1:
     fail('CPU copy fallback not found once')
