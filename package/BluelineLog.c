@@ -24,6 +24,9 @@ extern volatile uint64_t native_data_persist_errors __attribute__((weak_import))
 extern volatile uint32_t blueline_gpu_state[8] __attribute__((weak_import));
 extern volatile uint32_t blueline_display_state[12] __attribute__((weak_import));
 extern volatile uint64_t native_gop_gpu_completions __attribute__((weak_import));
+extern volatile int32_t blueline_keys_state[8] __attribute__((weak_import));
+extern volatile uint32_t native_hid_input_events[8] __attribute__((weak_import));
+extern volatile int32_t native_hid_input_results[8] __attribute__((weak_import));
 extern size_t blueline_gpu_status_text(char *, size_t) __attribute__((weak_import));
 // What the Metal plugin told the driver (UniXNU drivers/Adreno740/NativeAdrenoPublish.cpp; same layouts): its progress markers (open types
 // 0x4147xxxx, each also a sandbox "deny iokit-open-user-client" line in the system log), its result lines, other processes' failure lines,
@@ -101,6 +104,11 @@ static void compose(char *out, size_t cap, const char *why, unsigned now) {
     ADD("\n");
   }
   if (&native_gop_gpu_completions) ADD("[gop] gpu completions %llu\n", (unsigned long long)native_gop_gpu_completions);
+  if (&blueline_keys_state && &native_hid_input_events && &native_hid_input_results)
+    ADD("[keys] stage %d arbiter %x apid %d kexts %x/%x changes %d mask %x errors %d | hid started %u reports %u last %x\n",
+        blueline_keys_state[0], blueline_keys_state[1], blueline_keys_state[2], blueline_keys_state[3], blueline_keys_state[4],
+        blueline_keys_state[5], blueline_keys_state[6], blueline_keys_state[7], native_hid_input_events[2],
+        native_hid_input_events[4], native_hid_input_results[4]);
   if (&native_data_persist_state)
     ADD("[data] state %u writes %llu errors %llu\n", native_data_persist_state,
         &native_data_persist_writes ? (unsigned long long)native_data_persist_writes : 0ull,

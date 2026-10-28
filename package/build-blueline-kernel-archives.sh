@@ -2,7 +2,8 @@
 # Build the two archives the blueline kernel links for the GPU candidate, on the build Mac:
 #   build/adreno740/libAdreno740.a                    (XNU_NATIVE_ADRENO): the common NativeAdreno core with
 #       kits/Sdm845Gpu (UniXNU-sdm845-common), the A630 bring-up, board policy, publication, firmware and the
-#       staged AGXAccelerator
+#       staged AGXAccelerator, and the keys (ShengHidInput on the original IOHIDFamily, PON reader; ShengHidInput 5f3a37c
+#       checked out at ~/blueline/ShengHidInput)
 #   build/native-legacy-display/libNativeLegacyDisplay.late.a (XNU_NATIVE_LEGACY_DISPLAY): GopFramebuffer for 22H384
 # Usage: build-blueline-kernel-archives.sh TREE KERNEL   (KERNEL: a built kernel of this profile, for the binding checks)
 set -euo pipefail
@@ -14,9 +15,12 @@ python3 "$DEV/package/build-blueline-gpu.py" --tree "$TREE" --components "$U" --
 python3 "$DEV/package/build-blueline-accelerator.py" --tree "$TREE" --components "$U" --kernel "$KERNEL"
 python3 "$DEV/package/build-blueline-display.py" --tree "$TREE" --components "$U" --kernel "$KERNEL" \
   --kernelcache "$U/out/ipsw/22H384/kernelcache.decompressed"
+python3 "$DEV/package/build-blueline-hid.py" --tree "$TREE" --components "$U" --hid "$HOME/blueline/ShengHidInput" \
+  --kernel "$KERNEL" --kernelcache "$U/out/ipsw/22H384/kernelcache.decompressed"
 WORK=$(mktemp -d)
 for a in "$TREE/build/sdm845-gpu-core/libSdm845GpuCore.a" "$TREE/build/blueline-gpu/libBluelineGpu.a" \
-         "$TREE/build/blueline-accelerator/libBluelineAccelerator.a"; do
+         "$TREE/build/blueline-accelerator/libBluelineAccelerator.a" \
+         "$TREE/build/blueline-hid/libBluelineHid.a"; do
   d="$WORK/$(basename "$a" .a)"; mkdir -p "$d"; (cd "$d" && xcrun ar x "$a")
 done
 mkdir -p "$TREE/build/adreno740"

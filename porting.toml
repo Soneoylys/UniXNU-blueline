@@ -107,17 +107,17 @@ evidence = [{ kind = "source", reference = "docs/DISPLAY-22H384.md", result = "O
 
 [[area]]
 id = "input"
-status = "planned"
-components = []
-paths = ["scripts/*hid*"]
-inputs = ["PM8998 PON (power, RESIN volume down) and GPIO6 (volume up) over the SDM845 SPMI arbiter v5."]
-configuration = ["Firmware: BluelineKeyInputDxe (uefi-blueline). Kernel: none yet."]
-procedure = ["Pending for XNU."]
-findings = ["The firmware key driver works on the phone (run 4)."]
+status = "implemented"
+components = ["ShengHidInput"]
+paths = ["package/BluelineButtons.cpp", "package/build-blueline-hid.py"]
+inputs = ["PM8998 PON (power, RESIN volume down) and GPIO6 (volume up) over the SDM845 SPMI arbiter v5 (core 0xc440000, obsrvr 0xe600000, cnfg 0xc40a000).", "22H384 IOHIDFamily-2115 IOHIDDevice: vtable 0xfffffff006d64688, C2 0xfffffff005c7ae5c, D2 0xfffffff005c7ae80, gMetaClass 0xfffffff007be2960 (kernelcache addresses; prelinked at -0x1000000), 207 slots, pure slot 180, 0xd0 bytes."]
+configuration = ["Firmware: BluelineKeyInputDxe (uefi-blueline).", "Kernel 32: BluelineButtons.cpp polls PON RT_STS every 20 ms (read-only observer channel) and feeds ShengHidInput 5f3a37c NativeHidInput report 2 (Consumer Power, Volume Decrement) on the original IOHIDFamily; started from native_legacy_display_late_probe; blueline-keys=0 turns it off."]
+procedure = ["build-blueline-kernel-archives.sh runs build-blueline-hid.py (ABI checks against the kernelcache and the built kernel) and links libBluelineHid.a into libAdreno740.a."]
+findings = ["The firmware key driver works on the phone (run 4).", "Run 40: PreBoard dims the display for idle after 30 s and nothing can wake it without input."]
 completion = ["Touches map to the display, simultaneous contacts keep stable IDs, release events arrive, and buttons produce expected HID reports."]
-limits = ["No touch or kernel buttons."]
-next_action = ["After storage."]
-evidence = []
+limits = ["No touch. Volume up is not read (GPIO 6 as ABL leaves it does not follow the key).", "Kernel keys not yet run on the phone."]
+next_action = ["Run 41: press power with the display dark; read the [keys] log line."]
+evidence = [{ kind = "source", reference = "docs/PROGRESS.md", result = "Run 41 preparation: build-blueline-hid.py passes its ABI checks (207 slots, 52 bindings) against the 22H384 kernelcache and kernel 31." }]
 
 [[area]]
 id = "gpu"

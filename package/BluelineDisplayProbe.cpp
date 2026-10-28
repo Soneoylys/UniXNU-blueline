@@ -4,7 +4,8 @@
 // (native_legacy_display_probe, from offline-component-load-probes.patch) and its late start after IOSurface
 // (native_legacy_display_late_probe, from offline-legacy-start.patch). The display scans out the firmware's GOP
 // framebuffer; frames reach it only through the GPU hand-off presenter (sheng-fb-gpu=1), and the build removes the
-// display's CPU copy path (package/build-blueline-display.py). The late probe then starts the GPU (BluelineGpu.cpp).
+// display's CPU copy path (package/build-blueline-display.py). The late probe then starts the keys (BluelineButtons.cpp)
+// and the GPU (BluelineGpu.cpp).
 // Nothing is drawn by this file.
 #include <IOKit/IOPlatformExpert.h>
 #include <IOKit/IODeviceMemory.h>
@@ -27,6 +28,7 @@ void native_gop_presenter_set_source(IOService *presenter, IOService *nub);
 kern_return_t OSKextLoadKextWithIdentifier(const char *);
 void blueline_gpu_start(void);
 void blueline_log_start(void);   // BluelineLog.c, sheng-log=1
+void blueline_buttons_start(void);   // BluelineButtons.cpp, power and volume-down keys
 // [0] stage, [1] metaclass status, [2] init, [3] probe, [4] start, [5] presenter, [6] swaps validated, [7] swaps refused,
 // [8] GPU offers refused, [9] transfers, [10] last transfer status, [11] retirements
 volatile uint32_t blueline_display_state[12];
@@ -234,6 +236,7 @@ void native_legacy_display_late_probe(void) {
             IOLog("BluelineDisplay: GPU hand-off presenter did not start\n");
         }
     }
+    blueline_buttons_start();
     blueline_gpu_start();
 }
 }
