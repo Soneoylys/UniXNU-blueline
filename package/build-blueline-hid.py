@@ -171,10 +171,38 @@ def compile_cpp(src, obj):
     return obj
 
 
+# The board's keys as Apple's built-in buttons (run 41: the same bits inside a keyboard collection reached the event driver,
+# 38 reports, and backboardd did nothing). The 22H384 IOHIDEventDriver personality "HID Buttons" matches a Telephony (0x0b)
+# / Phone (1) device; its report 2 keeps the Consumer usages and bit layout NativeHidInput sends (Menu, Power, Volume
+# Increment, Volume Decrement), and the device is marked Built-In. No keyboard collection, so iPadOS sees no hardware keyboard.
+source = (hid / 'NativeHidInput.cpp').read_text()
+keyboard = '''static const unsigned char descriptor[]={
+    0x05,0x01,0x09,0x06,0xa1,0x01,0x85,0x01,
+    0x05,0x07,0x19,0xe0,0x29,0xe7,0x15,0x00,0x25,0x01,
+    0x75,0x01,0x95,0x08,0x81,0x02,
+    0x75,0x08,0x95,0x01,0x81,0x03,
+    0x19,0x00,0x29,0x65,0x15,0x00,0x25,0x65,
+    0x75,0x08,0x95,0x06,0x81,0x00,
+    0x85,0x02,0x05,0x0c,0x09,0x40,0x09,0x30,0x09,0xe9,0x09,0xea,0x15,0x00,0x25,0x01,
+    0x75,0x01,0x95,0x04,0x81,0x02,
+    0x75,0x04,0x95,0x01,0x81,0x03,0xc0
+};'''
+buttons = '''static const unsigned char descriptor[]={
+    0x05,0x0b,0x09,0x01,0xa1,0x01,0x85,0x02,
+    0x05,0x0c,0x09,0x40,0x09,0x30,0x09,0xe9,0x09,0xea,0x15,0x00,0x25,0x01,
+    0x75,0x01,0x95,0x04,0x81,0x02,
+    0x75,0x04,0x95,0x01,0x81,0x03,0xc0
+};'''
+built_in = '        if(touchOnly||touchEnabled){setProperty("Built-In",true);'
+for old, new in ((keyboard, buttons), (built_in, '        setProperty("Built-In",true);\n' + built_in)):
+    if source.count(old) != 1:
+        fail('ShengHidInput source edit does not apply once')
+    source = source.replace(old, new)
+(out / 'NativeHidInput.cpp').write_text(source)
 wrap_dir = out / 'wrap'
 wrap_dir.mkdir(exist_ok=True)
 (wrap_dir / 'NativeHidInput.cpp').write_text(
-    f'#include "{hid / "NativeHidInput.cpp"}"\n__asm__(".globl \\"__GLOBAL__sub_I_NativeHidInput.cpp\\"");\n')
+    f'#include "{out / "NativeHidInput.cpp"}"\n__asm__(".globl \\"__GLOBAL__sub_I_NativeHidInput.cpp\\"");\n')
 hid_obj = compile_cpp(wrap_dir / 'NativeHidInput.cpp', out / 'NativeHidInput.o')
 buttons_obj = compile_cpp(here / 'BluelineButtons.cpp', out / 'BluelineButtons.o')
 

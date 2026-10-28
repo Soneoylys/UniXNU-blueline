@@ -1686,3 +1686,27 @@ Kernel 32 9c6a027c…e39f; payload b58818f0…2ffc (plugin, trust bundle, Data r
 `build/boot/blueline-unixnu-mu-simplefb-xnu32-keys.img` ef7f0c2e3051a96ed71a2ede9cc6d8644037fe4dc9186ff6fe267cafd12742ee;
 archive `build/share/blueline-run41-kernel32-keys.7z` 9d03949ba5db2d5de6b7d2fbf3b33a5a888ceba699de8e78c03bd32e89c4d991.
 Not yet run on the phone.
+
+### Run 41 result (2026-10-28): keys reach the HID stack, backboardd ignores them; run 42 prepared
+
+The owner pressed the keys and nothing happened. Readback archive 65d2bedb…c4b8; UFS log: 148 rounds, 212 s, 0 write errors.
+- `[keys] stage 6 arbiter 50000000 apid 172 kexts 0/0 changes 38 mask a errors 0 | hid started 1 reports 38 last 0`.
+  The PON reader, the HID kexts, the late class registration and the device start all work. Every press produced an
+  accepted report (handleReport 0), and that happens only after IOHIDEventDriver attached. The kernel log has
+  `BluelineButtons: keys 0x2 / 0` pairs at mach 211–217 s.
+- The /var unified log (boot C0AF7B56) has no key event in backboardd. Its persisted entries end before the presses: the dim was
+  at mach 161 s, and the owner rebooted with the keys, so logd's buffer was lost. It shows the same PreBoard idle dim as run 40.
+- Cause (most likely): the device's only collection was a keyboard (Generic Desktop 1/6) with the Consumer bits inside it,
+  so backboardd took the events as an external keyboard's keys. The 22H384 IOHIDEventDriver personalities are keyboard
+  1/6 and 1/7, "HID Buttons" Telephony 0x0b/1, a sensor, and a FIFO-only consumer-control display. ios-sweet's working
+  buttons were a dedicated consumer service.
+- Rendering: the warm-up was skipped and the VkPipeline cache hit 13/13 (40 ms). Pipeline creation still took 41.6 s in
+  total (max 18 s), and frames took 3.5 s mean from commit to complete. The time is in the metal2vulkan translation, which is the
+  next performance target.
+
+Run 42 (kernel 33 c1add81b…7190): `build-blueline-hid.py` now replaces ShengHidInput's descriptor with one Telephony/Phone
+application collection holding the same report 2 (Consumer Menu, Power, Volume Increment, Volume Decrement). The device is
+marked Built-In, and there is no keyboard collection. Payload 081b0474…f0b6, boot image
+`build/boot/blueline-unixnu-mu-simplefb-xnu33-buttons.img` fe631cf47de8ff67ba11e4eceb23be0db7cb333124e2846660610a9de02efe09,
+archive `build/share/blueline-run42-kernel33-buttons.7z` 1d9ab5e8fb87664ca2b735c79fe50e47b7226edae1de8e2f9570603a36705aa2.
+The test note asks for a 1-minute wait after the last press, so logd writes its log.
