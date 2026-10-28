@@ -1397,3 +1397,11 @@ Run 35 (kernel 26 e1dfa385af55fc6592308ec71d085b3ecd1859678a5f865aff6fb2607f2b99
 lines after the first one (`smmu scr0`) and after the ID registers. Payload 87876daa…e906, boot image
 `build/boot/blueline-unixnu-mu-simplefb-xnu26-gpu.img` 9bc2b29e96c20574d58efb2eb8cb7d939f8041875a98c6551b12121dba69e1da,
 archive `build/share/blueline-run35-kernel26-gpu.7z` fb4405d7447411ef614c637b15afb8b06fcec39367036c63b6c96ca398827a9e.
+
+### Run 35 result (2026-10-28)
+
+Run 35 (kernel 26), photo: the SMMU freeze is fixed. GPU SMMU sCR0 0x200626, ID0 0x48016605 (5 SMRs, stage 1 only),
+ID1 0x20008005 (5 context banks, no stage-2 banks), ID2 0x7511 (IAS/OAS 36 bits, AArch64 4K/16K/64K). GMU SMMU bank 1,
+slot 1 were picked. Then `FAIL 4 GMU context: e00002ca` (kIOReturnIOError from NativeAdrenoGmuContext::bringUp). Its step,
+program and route report is only in the kernel log; awaiting the UFS log readback. Next build shows that report on screen
+(uncommitted until the readback decides the fix).

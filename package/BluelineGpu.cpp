@@ -384,6 +384,11 @@ bool gmuContext() {
     IOLog("BluelineGpu: GMU context bank %u slot %u: step %u status 0x%x program %u/%u route %u/%u ttbr0 0x%llx\n", bank, slot,
           report.step, status, report.program_status, report.program_phase, report.route_status, report.routes_verified,
           report.ttbr0);
+    if (status)
+        screen("step %u prog %u/%u rt %u/%u/%u mis %x", report.step, report.program_status, report.program_phase,
+               report.route_status, report.route_phase, report.routes_verified, report.mismatch);
+    if (status)
+        screen("rb sctlr %x cbar %x smr %x s2cr %x", report.sctlr, report.cbar, report.smr, report.s2cr);
     return status ? fail(4, status, "GMU context") : true;
 }
 
