@@ -1278,3 +1278,17 @@ optional sheng hooks (boot_log_export_put, native_ufs_dpu_map/state), now define
 bindings re-checked against it (PASS).
 Still to do: Metal plugin (Rust/LLVM toolchain on the Mac), GPU addon, owner trust bundle
 (`package/make-blueline-trust-bundle.py`), payload and boot image.
+
+### Prepared run 30 (2026-10-28): kernel 21, GPU candidate
+
+- Metal plugin: `scripts/build-adreno-metal-plugin.py` without the A740 Turnip replay step (host-simulation only);
+  needed a glslc shim over glslangValidator, SPIRV-Tools spirv-val, Rust 1.98.0 + aarch64-apple-ios, MacPorts
+  LLVM 22 llvm-as, and legacy-name links drivers/NativeMobileDisplay, NativeMetal, NativeAdreno on the Mac.
+  CDHashes: plugin c278387b…ad85, adrenoprobed b61d1439…68e4, Turnip 5c058b63…44f5.
+- Trust: `package/make-blueline-trust-bundle.py` -> 4442e2b6…c728 (owner module + both 22H384 modules); added to the
+  OS profile's trust_cache_sha256. GPU addon: `make-gpu-addon.py --publish` (9 files, 12,172,464 bytes).
+- Payload (k21, one core, display/GPU args, existing Data seed): 19cf17bb8fabb3905e283a3e9639704a7f008a0f5235357b1dc6f5abd6496def.
+- Boot image: `build/boot/blueline-unixnu-mu-simplefb-xnu21-gpu.img`, 84,951,040 bytes,
+  aa2e59717686f4cba522d7139d6a8a480aa85f9beddbb51f0d2f5046a3bcfcc0 (firmware 3e744b3c…, no bars).
+- Archive `build/share/blueline-run30-kernel21-gpu.7z`, 20,582,380 bytes,
+  ec46672109e783e5e42703de869b31271b3d841d99e0dbc8e004aaadbd957a6b. No phone result yet.
