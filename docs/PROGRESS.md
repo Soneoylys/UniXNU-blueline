@@ -1292,3 +1292,23 @@ Still to do: Metal plugin (Rust/LLVM toolchain on the Mac), GPU addon, owner tru
   aa2e59717686f4cba522d7139d6a8a480aa85f9beddbb51f0d2f5046a3bcfcc0 (firmware 3e744b3c…, no bars).
 - Archive `build/share/blueline-run30-kernel21-gpu.7z`, 20,582,380 bytes,
   ec46672109e783e5e42703de869b31271b3d841d99e0dbc8e004aaadbd957a6b. No phone result yet.
+
+### Run 30 result (2026-10-28): display found by backboardd; GPU stopped at the GPLL0 preflight
+
+/var read back (108,762 pages; `~/blueline/data-readback/run30-data.img`, log `run30-log.jsonl`, boot A6AF0EC3):
+- `BluelineDisplay: GOP display 1080x2160 started`, registered; backboardd `FB Count = 1`, CADisplay 1 created;
+  IOMobileFramebufferUserClient opened 7 times (status 0). SpringBoard no longer crash-loops on a missing CADisplay
+  (pid 26 killed once by launchd, pid 146 still running at the log end, 00:02:02).
+- backboardd: `Display 1 current mode (16383 x 16383), preferred mode (0 x 0)`; DisplayAttributes, IOMFBDisplayRefresh
+  and other IOMFB properties not found. 0x3fff is not in the 22H384 family kext: a userspace default. To fix next.
+- `BluelineGpu: cmd-db at 0x85FE0000, 0xDC0 bytes`, version 1; `CX power: status 3 phase 1 window 0 offset 0x38 value
+  0x4000`: Sdm845GpuPowerCx's GPLL0 check refused. msm-4.9 runs GPLL0 in FSM vote mode (GCC 0x52000 bit 0), so OUTCTRL
+  (mode bit 0) is clear.
+
+### Prepared run 31 (2026-10-28): kernel 22
+
+kits/Sdm845Gpu accepts lock + (OUTCTRL or FSM vote bit 20); BluelineGpu logs the GPLL0 words on any clock failure.
+Kernel 22 b8dde57857a912a6ce112d93fef970456dc87deb2e7c8977a8354f5d6a41dc10 (the Mac's kernel-k21.macho was overwritten
+by the rebuild; the original k21 is build/kernel/ipados-18/kernel-k21.macho), payload 912e4345…c822, boot image
+`build/boot/blueline-unixnu-mu-simplefb-xnu22-gpu.img` 39beffa4f5a7ffaab685276bc0e6b1a4f08bca06772aba3caf74b52e3c18488d,
+archive `build/share/blueline-run31-kernel22-gpu.7z` 12b2a08c659a65a527437c7d85065a05d17f700a180d9867cc90d8b56cb690e0.

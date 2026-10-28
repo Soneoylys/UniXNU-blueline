@@ -123,6 +123,12 @@ bool kitFail(uint32_t at, Sdm845GpuStatus status, const char *what) {
     blueline_gpu_state[5] = gState.value;
     IOLog("BluelineGpu: %s: status %d phase %u window %u offset 0x%lx value 0x%x polls %u\n", what, status, gState.phase,
           gState.window, (unsigned long)gState.offset, gState.value, gState.polls);
+    if (gState.phase == Sdm845GpuPhaseClocks && gVa[WinGcc]) {
+        // GPLL0 (Fabia at GCC+0): mode, L, user ctl, opmode, fractional, and the APCS vote register 0x52000.
+        const volatile uint32_t *gcc = reinterpret_cast<const volatile uint32_t *>(gVa[WinGcc]);
+        IOLog("BluelineGpu: GPLL0 mode %08x L %08x user %08x opmode %08x frac %08x vote %08x\n", gcc[0], gcc[1], gcc[3],
+              gcc[0x2c / 4], gcc[0x38 / 4], gcc[0x52000 / 4]);
+    }
     return fail(at, uint32_t(status), what);
 }
 
