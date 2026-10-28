@@ -1854,3 +1854,17 @@ Kernel 37 18bf104d…6d04 (Mac `~/blueline/run46-build.sh`, kernel37-build.sh), 
 `blueline-unixnu-mu-simplefb-xnu37-swrender-8cpu.img` 236a2d7bff67ef9c96648159f4d61e843718a24f3a5b78387d37c4ad61c6326a,
 folder build/share/run46 (TEST-RUN46.txt). Look for in the dump: `[display]` transfers and retirements rising together
 with `[kick]` not stuck on reason 2, `[touch]` stage/events/reports, `[keys]`, and backboardd crash reports in /var.
+
+### Run 46 result and run 46b (2026-10-28): launchd killed, no trust cache in the payload
+
+Panic screen: `unexpected SIGKILL of launchd with reason -- namespace 9 code 0x8 description none`, `exec=dyld`. Namespace 9
+is OS_REASON_EXEC and code 8 is EXEC_EXIT_REASON_SECURITY_POLICY: the exec of launchd (through dyld) was refused by the code
+signing policy. Not the earlier AMFI 16 KiB stack-check bug (runs 25-27; fixed since kernel 20). Cause: my run 46 payload
+dropped `--trust-cache` along with the Metal plugin. The GPU builds' blueline-trust.bundle is the plugin's owner module plus
+the two original 22H384 Apple modules (package/make-blueline-trust-bundle.py), so without it the payload had no trust
+cache at all, and no platform binary could run.
+Run 46b: the same kernel 37, payload rebuilt with `--trust-cache ~/blueline/ios18-tools/trust/22H384-static-system.bundle`
+(the original Apple bundle, 26ed8386…7ce0, accepted by the profile; payload.json records it). Payload 034379f9…581d, boot
+image `blueline-unixnu-mu-simplefb-xnu37b-swrender-8cpu.img` b4b1485d010e7c1ec8cc0a215a0b613223b36821596e5cab71c12c99ff35799a,
+archive build/share/blueline-run46b-kernel37-swrender.7z 200fa5c4…60f4e3.
+Rule: a payload always needs a trust cache; without the GPU plugin, use the original 22H384 bundle.

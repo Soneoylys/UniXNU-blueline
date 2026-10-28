@@ -139,7 +139,8 @@ kernel_args = [
   # the GOP framebuffer with its CPU copy (kernel archives built with CPU_COPY=1), no Metal device, so QuartzCore renders on
   # the CPU (as fajita, SDM845, and UniXNU's QEMU target without --metal). The GPU candidate (docs/GPU-A630.md) was
   # sheng-fb-gpu=1, blueline-gpu=2 and sheng-gpu-addon=1, with archives built without CPU_COPY and the payload's
-  # --trust-cache/--gpu-addon.
+  # --gpu-addon and the GPU trust bundle. Software rendering still needs a trust cache: the original 22H384 bundle
+  # (run 46: none at all, so launchd's exec was refused).
   "offline-mobile-graphics-load=1",  # load IOMobileGraphicsFamily, then register the display classes
   "offline-legacy-register=1",
   "offline-legacy-gop=1",
