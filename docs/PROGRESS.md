@@ -1330,3 +1330,14 @@ IOMobileGraphicsFamily `swap_wait_gated` (kernelcache 0xfffffff005c1ecf8): after
 seconds ... cancelling swaps` it logs `swapId, options, noBlock, HPD, DPLink (= slot 355), TimingEnable, PowerStates-Cntr,
 Display` and then calls slot 356. So a client's swap never retired: the GPU hand-off did not complete the frame. Fix for
 the next build: slot 355 `dpLinkState()` returns 0 (abstract leaf, log value only). The GPU stage is in the /var log.
+
+### Run 31 /var read back and prepared run 32 (2026-10-28)
+
+/var: 114,948 pages (`~/blueline/data-readback/run31-data.img`, `run31-log.jsonl`, boot 2D75EC73). The GPU stopped at the
+same GPLL0 check; the dump shows why: `GPLL0 mode D0100005 L 1F user 103 opmode 0 frac 4000 vote 11`. Lock, OUTCTRL and
+FSM vote are set (the run 30 guess that OUTCTRL was clear was wrong); OPMODE reads 0 because the FSM runs the voted PLL.
+The display still started and backboardd opened it. Fix: kits/Sdm845Gpu accepts OPMODE 0 in FSM vote mode.
+Kernel 23 f64f70cd899b657e643d606b4421de5e5a546304989c40fa5a46613b8e38e3d5 (GPLL0 fix + display slot 355), payload
+a939c398…ffe8, boot image `build/boot/blueline-unixnu-mu-simplefb-xnu23-gpu.img`
+11d9571e6520963e47465e9810e4955701e14403d690ec2c6b94f3a96dd2804c, archive `build/share/blueline-run32-kernel23-gpu.7z`
+0ecabb4e7e6798234fd380207ec83174ac62622127ea48f5faafa1667dc1b0c2.
