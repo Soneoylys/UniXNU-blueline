@@ -1403,5 +1403,6 @@ archive `build/share/blueline-run35-kernel26-gpu.7z` fb4405d7447411ef614c637b15a
 Run 35 (kernel 26), photo: the SMMU freeze is fixed. GPU SMMU sCR0 0x200626, ID0 0x48016605 (5 SMRs, stage 1 only),
 ID1 0x20008005 (5 context banks, no stage-2 banks), ID2 0x7511 (IAS/OAS 36 bits, AArch64 4K/16K/64K). GMU SMMU bank 1,
 slot 1 were picked. Then `FAIL 4 GMU context: e00002ca` (kIOReturnIOError from NativeAdrenoGmuContext::bringUp). Its step,
-program and route report is only in the kernel log; awaiting the UFS log readback. Next build shows that report on screen
-(uncommitted until the readback decides the fix).
+program and route report is only in the kernel log; awaiting the UFS log readback. The next build shows that report on
+screen. Later the render server's frames (disp 4, gpu-ref 3, xfer 4) cleared the status rows; only line 0 kept being redrawn
+(log 2, rounds rising). The status thread now redraws every row.

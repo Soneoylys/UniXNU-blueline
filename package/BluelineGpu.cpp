@@ -166,7 +166,8 @@ void drawLine(unsigned row, const char *text) {
         }
 }
 // Line 0 every 2 s: frames the display took and refused, GPU-refused frames, transfers, and the UFS log's state and rounds
-// (state 2 = writing). The other lines are drawn when they are added.
+// (state 2 = writing). The other lines are drawn when they are added and redrawn here too, since frames the render server
+// sends before the GPU is up clear the screen (run 35).
 void statusThread(void *, wait_result_t) {
     for (unsigned tick = 0; tick < 600; ++tick) {   // 20 minutes at most
         if (native_gop_gpu_completions) return;      // the GPU draws the screen now
@@ -174,8 +175,7 @@ void statusThread(void *, wait_result_t) {
                  blueline_display_state[7], blueline_display_state[8], blueline_display_state[9],
                  &boot_log_state ? boot_log_state : 0, &boot_log_rounds ? boot_log_rounds : 0);
         if (!gStatusCount) gStatusCount = 1;
-        drawLine(0, gStatus[0]);
-        __asm__ volatile("dsb sy" ::: "memory");
+        drawAll();
         IOSleep(2000);
     }
 }
