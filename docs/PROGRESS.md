@@ -1453,3 +1453,12 @@ changed: its budgets are 100 ms per command and 1 s in total).
 Run 38 (kernel 30 a067f16b6936acd2b3174d8fbd271369cc8459d4d3051fa1c6116b138fa99828): payload 46563761…4f8d, boot image
 `build/boot/blueline-unixnu-mu-simplefb-xnu30-gpu.img` 6e1587375e63039d3612eff618d7c9cc8f1ad6709968f2314462ba0210cb418d,
 archive `build/share/blueline-run38-kernel30-gpu.7z` 78274b30911c595aa4f85651a2fa0fe985e91db4eb4097475d80d59b20ce819d.
+
+### Run 38 result (2026-10-28): A630 up, Metal accelerator registered
+
+Run 38 (kernel 30), photo: every bring-up stage passed. HFI start (8), GPU_SET (9), GPU SMMU bank 0 / slot 0 (S2CR0
+0x200ff, the same hypervisor quirk, handled by the BYPASS write), hardware setup (11), CP/zap/secure (ph 16-17), boot
+release (18), `GPU ready: CP fence + zap ok`, publish (19), Metal (20/21), `Metal accelerator registered`. The last line is
+`ph 19 r gpu+2018`: the first GPU register access after boot release, a read of CP_RB_RPTR (0x806). The display counter
+showed 0 frames at the photo (`disp 0/0`, log round 83). Whether the system kept running past that read is the open
+question (a CPU read of a GX register while the GMU has collapsed GX would stall the bus on the single CPU).
