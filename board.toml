@@ -129,6 +129,7 @@ kernel_args = [
   "-apfs_shared_datavolume",
   "sheng-data-persist=2",            # RamBlock overlay in the bounded free part of darwin
   "sheng-log-reserve=1024",          # fixed geometry; retain the final GiB for logs/future inputs
+  "sheng-log=1",                     # package/BluelineLog.c: msgbuf + GPU status every 2 s to the last 32 MiB of darwin
   "native-entitlements-diag=1",      # preserve AMFI checks; identify the dictionary conversion failure
   "native-ufs-smmu-stream=0x100",     # SDM845: iommus = <&apps_smmu 0x100 0xf> (as fajita)
   "native-ufs-smmu-mask=0xf",

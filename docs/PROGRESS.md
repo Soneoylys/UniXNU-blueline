@@ -1355,3 +1355,29 @@ register dumps (iso_font, rows from y 1180, redrawn every 2 s until the first GP
 automatically when taken. Payload d7739c6a…0693, boot image `build/boot/blueline-unixnu-mu-simplefb-xnu24-gpu.img`
 414ccb30facb5b5303b03e7a9037b85ed9a7627f53c756ced0191a9da6468fca, archive `build/share/blueline-run33-kernel24-gpu.7z`
 35ea238d2c897961123cecb0cba2ceb4676186d3c168918c1a6b3b10de8f5245.
+
+### Run 33 result and prepared run 34 (2026-10-28)
+
+Run 33 (kernel 24): loader screen, no status text (the status width check wanted 1104 px on the 1080 px panel; fixed in
+052df46). /var readback (`readback.sh 33`): six boots, none of them run 33. Boots A6AF0EC3/2D75EC73/5C22B695 are runs
+30-32 (kernel build "Oct 27 23:51", FB Count 1, BluelineGpu lines); 632E778D/C0D288FB/90CC2441 are older kernels
+("Oct 27 18:55", FB Count 0). So kernel 24 left nothing in /var. Its only new code runs in the GPU thread, so the likely
+cause is a freeze on the single CPU after the CX step, which run 32 never passed: the first access to the GPU SMMU, the
+GMU, the RSCC or the PDC. A freeze there loses all unflushed /var logs. Addresses checked against Linux sdm845.dtsi: GMU
+0x506a000/0x30000 (RSCC +0x23000), PDC 0xb280000, PDC sequence 0xb480000, GPUCC branch and RCG offsets (gmu_clk_src 0x1120
+src 6 div 1.5, cx_gmu 0x1098, cxo 0x109c) match.
+
+Run 34 (kernel 25 a5cf8c23a54827f2d833326496c43fe2ca015ae8557f56469335f9648590e22a):
+- UFS diagnostic log (`package/BluelineLog.c`, `sheng-log=1`), a trimmed port of fajita/sheng `BootLog.c` with the same
+  SHLOG001 v4 window. It holds the kernel message buffer and a text slot (GPU and display state, on-screen status rows),
+  written every 2 s and synchronously on every GPU status line. The window is the last 8192 blocks of darwin, absolute LBA
+  0x1dc1700 (31201024). The Data store ends below the 1 GiB reserve, so they don't overlap. Started from the display's
+  early probe. Left out: the exports, the board page, autoreset, and the panic flush (no panic hook on blueline yet).
+- GPU status lines are drawn synchronously, 20 rows. Each line also goes to IOLog and a log checkpoint. A line is added on
+  the first access to each kit MMIO window and on each kit phase change, before the access. Another line marks the first
+  GPU SMMU read.
+- `scripts/blueline-dump.ps1`: the default is now the 32 MiB log window (`-Data` adds the old /var dump).
+  `scripts/blueline-log.py` decodes it on Windows.
+Payload ab82c40e8958b474d5b462f0291c10d89208dfdc546a8df689322d4f0bb61001, boot image
+`build/boot/blueline-unixnu-mu-simplefb-xnu25-gpu.img` 33729ccc48e6cd32d16b02b673af76306c3bd220f7f4019297d3e62f5ab5559b,
+archive `build/share/blueline-run34-kernel25-gpu.7z` d9af5bba8a0bb9eab644e94f86327b7aa377d0f100c554736207ef31ff74988b.

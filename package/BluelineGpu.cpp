@@ -109,17 +109,28 @@ unsigned bootArg(const char *name, unsigned fallback) {
     return value;
 }
 // On-screen status (blueline-gpu-status, default 1): one white console-font line per stage and the failing stage's
-// registers, drawn into the lower part of the GOP framebuffer (below the loader's text) and redrawn every 2 s until the
-// first GPU-copied frame replaces them, so a photo shows how far the GPU got. Text only, no bars or blocks.
+// registers, drawn into the lower part of the GOP framebuffer (below the loader's text) until the first GPU-copied frame
+// replaces them, so a photo shows how far the GPU got. Text only, no bars or blocks. Each line is drawn and written to the
+// UFS log (BluelineLog.c) before the caller goes on, so a step that stalls the bus on the single CPU still leaves it on the
+// screen and on the medium.
 extern "C" unsigned char iso_font[256 * 16];   // XNU osfmk/console/iso_font.c, 8x16
 extern "C" volatile uint64_t native_gop_gpu_completions;
 extern "C" volatile uint32_t blueline_display_state[12];
-constexpr unsigned kLines = 14, kCols = 44, kScale = 3, kTop = 1180, kLeft = 12;   // 12 + 44 * 24 = 1068 <= 1080
+extern "C" volatile uint32_t boot_log_state __attribute__((weak_import)), boot_log_rounds __attribute__((weak_import));
+extern "C" int blueline_log_checkpoint(const char *) __attribute__((weak_import));
+// 12 + 44 * 24 = 1068 <= 1080 wide; 1180 + 20 * 48 = 2140 <= 2160 high
+constexpr unsigned kLines = 20, kCols = 44, kScale = 3, kTop = 1180, kLeft = 12;
 char gStatus[kLines][kCols + 1];
 unsigned gStatusCount;
 OSSharedPtr<IOMemoryMap> gFbMap;
 volatile uint8_t *gFb;
 PE_Video gVideo;
+void drawLine(unsigned row, const char *text);
+void drawAll() {
+    if (!gFb || native_gop_gpu_completions) return;   // the GPU draws the screen now
+    for (unsigned row = 0; row < gStatusCount; ++row) drawLine(row, gStatus[row]);
+    __asm__ volatile("dsb sy" ::: "memory");
+}
 void screen(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 void screen(const char *fmt, ...) {
     char line[kCols + 1];
@@ -131,7 +142,11 @@ void screen(const char *fmt, ...) {
         for (unsigned row = 1; row + 1 < kLines; ++row) memcpy(gStatus[row], gStatus[row + 1], sizeof gStatus[0]);   // keep line 0
         gStatusCount = kLines - 1;
     }
+    if (!gStatusCount) gStatusCount = 1;   // line 0 is the display summary
     strlcpy(gStatus[gStatusCount++], line, sizeof gStatus[0]);
+    IOLog("BluelineGpu: | %s\n", line);
+    drawAll();
+    if (&blueline_log_checkpoint) blueline_log_checkpoint(line);
 }
 void drawLine(unsigned row, const char *text) {
     const size_t stride = gVideo.v_rowBytes;
@@ -150,16 +165,31 @@ void drawLine(unsigned row, const char *text) {
             }
         }
 }
+// Line 0 every 2 s: frames the display took and refused, GPU-refused frames, transfers, and the UFS log's state and rounds
+// (state 2 = writing). The other lines are drawn when they are added.
 void statusThread(void *, wait_result_t) {
     for (unsigned tick = 0; tick < 600; ++tick) {   // 20 minutes at most
         if (native_gop_gpu_completions) return;      // the GPU draws the screen now
-        snprintf(gStatus[0], sizeof gStatus[0], "disp ok %u bad %u gpu-refused %u xfer %u",
-                 blueline_display_state[6], blueline_display_state[7], blueline_display_state[8], blueline_display_state[9]);
+        snprintf(gStatus[0], sizeof gStatus[0], "disp %u/%u gpu-ref %u xfer %u log %u r%u", blueline_display_state[6],
+                 blueline_display_state[7], blueline_display_state[8], blueline_display_state[9],
+                 &boot_log_state ? boot_log_state : 0, &boot_log_rounds ? boot_log_rounds : 0);
         if (!gStatusCount) gStatusCount = 1;
-        for (unsigned row = 0; row < gStatusCount; ++row) drawLine(row, gStatus[row]);
+        drawLine(0, gStatus[0]);
         __asm__ volatile("dsb sy" ::: "memory");
         IOSleep(2000);
     }
+}
+// The status lines, one per row (BluelineLog.c's text slot, through blueline_gpu_status_text).
+size_t statusText(char *out, size_t cap) {
+    size_t at = 0;
+    for (unsigned row = 0; row < gStatusCount && at + kCols + 2 < cap; ++row) {
+        const size_t n = strnlen(gStatus[row], kCols);
+        memcpy(out + at, gStatus[row], n);
+        at += n;
+        out[at++] = '\n';
+    }
+    if (at < cap) out[at] = 0;
+    return at;
 }
 void statusStart() {
     if (!bootArg("blueline-gpu-status", 1) || PE_current_console(&gVideo) || gVideo.v_depth != 32 || !gVideo.v_baseAddr ||
@@ -502,6 +532,22 @@ bool cpStart() {
     return true;
 }
 
+// Kit MMIO through the board: the first access to each window and the first access after each kit phase change get a status
+// line (drawn and logged before the access), so a register that stalls the bus is narrowed to one window and phase.
+Sdm845GpuIo gRawIo;
+bool gTouched[WinCount];
+uint32_t gLastPhase = ~0u;
+const char *const kWinNames[WinCount] = {"gcc", "gpucc", "gmu", "rscc", "pdc", "pdc-seq", "gpu", "smmu"};
+void mark(unsigned w, size_t at, char op) {
+    const bool first = w < WinCount && !gTouched[w], phase = gState.phase != gLastPhase;
+    if (!first && !phase) return;
+    if (w < WinCount) gTouched[w] = true;
+    gLastPhase = gState.phase;
+    screen("ph %u %c %s+%lx%s", gState.phase, op, w < WinCount ? kWinNames[w] : "?", (unsigned long)at, first ? " first" : "");
+}
+int ioRead(void *cookie, unsigned w, size_t at, uint32_t *value) {mark(w, at, 'r'); return gRawIo.read32(cookie, w, at, value);}
+int ioWrite(void *cookie, unsigned w, size_t at, uint32_t value) {mark(w, at, 'w'); return gRawIo.write32(cookie, w, at, value);}
+
 bool bringUp() {
     stage(1, 0);
     if (!firmwareValid()) return false;
@@ -514,12 +560,16 @@ bool bringUp() {
     // The board XO (the arch timer's clock-frequency 0x124f800 in the stock DTB) feeds GPLL0.
     Sdm845GpuStatus s = gNative.bind(windows, 19200000, &gIo);
     if (s) return kitFail(2, s, "MMIO bind");
+    gRawIo = gIo;
+    gIo.read32 = ioRead;
+    gIo.write32 = ioWrite;
     BluelineGpuArcInputs arcs{};
     if (!loadCommandDb(arcs)) return false;
     if (BluelineGpuBuildStartup(&arcs, &gStartup) != AdrenoHfiStartupSuccess) return fail(3, 0x20, "startup table");
     stage(4, 0);
     if ((s = Sdm845GpuPowerCx(&gState, &gIo))) return kitFail(4, s, "CX power");
     IOLog("BluelineGpu: CX on, GPLL0 even %u Hz\n", gState.gpll_even_hz);
+    screen("CX on; reading the GPU SMMU");
     smmuSurvey(gVa[WinSmmu]);
     if (!gmuContext() || !hfiQueues()) return false;
     stage(6, 0);
@@ -607,6 +657,8 @@ void gpuThread(void *, wait_result_t) {
     if (bringUp() && publish() && mode >= 2) publishMetal();
 }
 }   // namespace
+
+extern "C" size_t blueline_gpu_status_text(char *out, size_t cap) {return statusText(out, cap);}
 
 // Started once from the display driver's late probe, as sheng starts sheng_gpu_power_probe.
 extern "C" void blueline_gpu_start(void) {

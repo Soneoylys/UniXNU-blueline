@@ -26,6 +26,7 @@ bool native_gop_gpu_offer(IOService *, void *display, IOMemoryDescriptor *, uint
 void native_gop_presenter_set_source(IOService *presenter, IOService *nub);
 kern_return_t OSKextLoadKextWithIdentifier(const char *);
 void blueline_gpu_start(void);
+void blueline_log_start(void);   // BluelineLog.c, sheng-log=1
 // [0] stage, [1] metaclass status, [2] init, [3] probe, [4] start, [5] presenter, [6] swaps validated, [7] swaps refused,
 // [8] GPU offers refused, [9] transfers, [10] last transfer status, [11] retirements
 volatile uint32_t blueline_display_state[12];
@@ -62,8 +63,9 @@ bool publishWord(IORegistryEntry *entry, const char *key, uint32_t value) {
 }   // namespace
 
 extern "C" {
-// Optional sheng board services the shared sources weak-import; the static kernel link needs a definition. No UFS boot
-// log writer exists on this board (the plugin's log pieces are refused), and no direct DPU scanout (SM8550 only).
+// Optional sheng board services the shared sources weak-import; the static kernel link needs a definition. The UFS log
+// writer (BluelineLog.c) has no export region, so the plugin's pipeline-cache pieces are refused; no direct DPU scanout
+// (SM8550 only).
 int boot_log_export_put(uint32_t, uint32_t, uint32_t, const void *, uint32_t) {return -1;}
 uint32_t native_ufs_dpu_map(unsigned, const uint64_t *, unsigned) {return 0;}
 volatile uint32_t native_ufs_dpu_state = 0;
@@ -128,6 +130,7 @@ __attribute__((noreturn, noinline)) void native_legacy_backend_guard(unsigned sl
 // Early registration: the display and presenter classes join the kernel's metaclasses once, then the display object
 // waits for the IOSurface resource.
 void native_legacy_display_probe(void) {
+    blueline_log_start();
     if (blueline_display_state[0]) return;
     stage(1);
     void *handle = OSMetaClass::preModLoad(g_kernel_kmod_info.name);

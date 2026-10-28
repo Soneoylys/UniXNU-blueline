@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Build the blueline GPU archive: the board bring-up (BluelineGpu.cpp), the board OPP policy, the native Adreno
-publication, and the pinned A630 firmware, with the resolved tree's XNU C/C++ recipes. Links against
+"""Build the blueline GPU archive: the board bring-up (BluelineGpu.cpp), the UFS diagnostic log (BluelineLog.c), the board
+OPP policy, the native Adreno publication, and the pinned A630 firmware, with the resolved tree's XNU C/C++ recipes. Links against
 libSdm845GpuCore.a (UniXNU-sdm845-common kits/Sdm845Gpu/build-native.py), which must be built first."""
 from pathlib import Path
 import argparse, hashlib, importlib.util, json, subprocess
@@ -22,7 +22,7 @@ obj_dir = tree / 'build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837'
 recipes = {'.c': json.loads((obj_dir / 'bsd/DEVELOPMENT/bsd_init.o.json').read_text().strip().rstrip(',')),
            '.cpp': json.loads((obj_dir / 'iokit/DEVELOPMENT/IOPlatformExpert.cpo.json').read_text().strip().rstrip(','))}
 core = components / 'drivers/Adreno740'
-sources = [here / 'BluelineGpuPolicy.c', here / 'BluelineGpu.cpp', core / 'NativeAdrenoSha256.cpp',
+sources = [here / 'BluelineGpuPolicy.c', here / 'BluelineGpu.cpp', here / 'BluelineLog.c', core / 'NativeAdrenoSha256.cpp',
            core / 'NativeAdrenoPublish.cpp']
 includes = [here, core, components / 'kits/ArmSmmu4K', components / 'kits/AdrenoFirmware', components / 'kits/AdrenoPM4',
             soc / 'kits/Sdm845Gpu', tree / '.cache/xnu-work/osfmk']
