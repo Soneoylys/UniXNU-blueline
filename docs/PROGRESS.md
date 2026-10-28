@@ -1754,3 +1754,9 @@ Owner asked why the earlier eight-core attempt failed. From the xnu-11417 source
   (`[cpu]`). A slow core then acknowledges in time. A core whose SGI count stays 0 never receives IPIs, which would also
   break scheduling, TLB shootdowns and the other halts.
 - Still unchecked: ArmCpu's idle/wake path for the Gold cluster, and whether QHEE traps ICC_SGI1R_EL1.
+
+Run 43 packaged: kernel 35 3714f369…e92a (kernel 34 plus the `[cpu]` line). Payloads: one core 0be2abc6…0ff9, eight cores
+181edf99…c302 (`cpus=8 sheng-smp=1 ml-timeout-debug-ack=19200000`). Boot images:
+`blueline-unixnu-mu-simplefb-xnu35-1cpu.img` 8eb20eb3ed7441f58962bac4c96a65ceac75091920266cf54cbd9a87bbfd97ba,
+`blueline-unixnu-mu-simplefb-xnu35-8cpu.img` 1b46d94e3cdc3fb2d03d51e0c23f08edf59cb310b9b037f8960c343c8060488b.
+Archive `build/share/blueline-run43-kernel35.7z` 0128807ac055ca4269e2f61e094e9768e57d0b9cc0d7ec13f0e107d59de6b9af.
