@@ -1789,3 +1789,24 @@ Next, from the reference:
 1. Buttons and volume up as its dedicated consumer-control service, plus touch (FTM5 chain), adapted to the prelinked
    IOHIDFamily of 22H384.
 2. Its SMP diagnostics (0116) to find the core that misses the debugger SGI.
+
+### Run 44 prepared (2026-10-28): keys and touch ported from pixel3-ios
+
+The owner asked to port the iOS 16 work instead of reinventing it.
+- Keys: package/BluelineButtons.cpp now follows pixel3-ios blueline_keys.c (0104 + 0109). It reads power and volume down from
+  PON RT_STS, and volume up from PM8998 GPIO 6 STATUS1 after setting its pull-up once (DIG_PULL_CTL 0xc542 = 0, only if the apps
+  EE owns the APID).
+- Touch: package/BluelineTouch.cpp is blueline_touch.c (0105, 0113, 0114, 0121) ported unchanged in its bus, power and FTM5
+  parts: bit-banged I2C on GPIO 27/28 with GPIO 136 high, the LDO19 3.3 V vote over RPMh through the cmd-db, and the FTM5
+  reset/interrupt/sense-on and event decoding. It polls (0113's mode). The 0121 interrupt mode needs an SPI mask that ArmCpu
+  does not have yet.
+- Services: as ios-sweet's SweetHID, which the reference uses (refs/ios-flame 0058): a built-in Consumer Control buttons
+  device, and a separate built-in Digitizer/Touch Screen device with an unused Consumer Control collection. On 22H384 only
+  the "Peppy Touch Display" IOHIDEventDriver personality (Consumer Control, Transport FIFO) matches such devices, so both
+  report FIFO. The edge-gesture wrapper is disabled because its IOHIDFamily-2031 vtable slots are unchecked for 2115.
+- New UFS log line `[touch]`: stage, chip id, RPMh error, start bits, events, errors, down mask, reports.
+- Also pushed (owner's request): UniXNU-sdm845-common to f048c75, and UniXNU-blueline with feeds.toml pinned to it.
+Kernel 36 1ae7729c…12be. Payloads: eight cores 18e67e10…6e56, one core aa3ba12f…f610. Boot images:
+`blueline-unixnu-mu-simplefb-xnu36-8cpu.img` 9386f000a6dd38388faa220c5c9372b375ecae6f554332666fda65fe16cbb2bb,
+`blueline-unixnu-mu-simplefb-xnu36-1cpu.img` 07f03eea20b5365cf971900343e3caef77ffe7949e1571ffc5fb9e4c810d4024.
+Run 44 replaces run 43 (it contains everything run 43 had).
