@@ -1422,3 +1422,21 @@ Run 36 (kernel 28 f75f131572ad4c80194587bc380854ed2580a2be9d769642e13a9e66f0fdef
 stores as FAULT. Every SMR/S2CR goes to the log ring; a GPU context failure goes on screen. Payload def9f0f4…3491, boot image
 `build/boot/blueline-unixnu-mu-simplefb-xnu28-gpu.img` 6e6ecdc24f1274630af05fa1392065e1890042fd2b344f89baffac9797c1fbe7,
 archive `build/share/blueline-run36-kernel28-gpu.7z` b4645054f15e24d9d67e6174e4144b50d6dc55d2629336f94db2cb2b43ab319b.
+
+### Run 36 result and prepared run 37 (2026-10-28)
+
+Run 36 (kernel 28), photo: slot 1's S2CR read 0x200ff (FAULT with CBNDX 0xff). The FAULT write was ignored and the BYPASS
+write was stored as FAULT (0x20000), the SDM845 hypervisor quirk arm-smmu-qcom documents. The GMU context attached, HFI
+queues mapped, and GMU boot started: the first writes to GMU, RSCC, PDC sequence and PDC all went through. Then
+`kit 4 ph 5 w2 +24c20 =0`: a timeout in the Sequences phase polling GMU_RSCC_CONTROL_ACK (0x9308) for bit 1. Clocks at
+failure: gcc 71004/44038/7100c/71018 running, gpucc gdscr 0xf8222000, gds_hw_ctrl 0x80001fe0 (on), cx_gmu 0x4ff1, cxo 1,
+gmu_clk_src cfg 0x602.
+Linux 6.12 programs the RSCC/PDC in a6xx_gmu_rpmh_init, which ends with a6xx_rpmh_stop (REQ 1, RSCC STATUS0_DRV0 bit 16,
+REQ 0); the power-on request (a6xx_rpmh_start) comes later. msm-4.9 kgsl sends no power-on request on the first boot.
+UniXNU-sdm845-common 3fd0e59: the kit now stops the RSC first, and neither handshake aborts the boot; both are
+recorded in Sdm845GpuState and shown on screen ("rsc stop .. start .."). The GMU firmware's 0xbabeface handshake decides.
+992 host checks pass.
+
+Run 37 (kernel 29 3237ded4c8d567b7d5d790081ecdceb1d1fd06e6ee42338a0da51cfc076965ff): payload 08de6a79…eab9, boot image
+`build/boot/blueline-unixnu-mu-simplefb-xnu29-gpu.img` 0093799a5a103fb0e82a383672a7c582a6367d7dfa660e2bad1fc80853b23a6d,
+archive `build/share/blueline-run37-kernel29-gpu.7z` f37061fb664fdde132e112c85903a2d953a16e3818e84953b99cbbfa7e91400f.

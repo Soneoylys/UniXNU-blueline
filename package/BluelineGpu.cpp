@@ -661,7 +661,20 @@ bool bringUp() {
     const NativeAdrenoGmuMemoryLayout &layout = gGmuCtx.allocator().layout();
     const Sdm845GpuGmuConfig gmu{native_adreno_firmware_image, size_t(kGmuBytes), kChipId, uint32_t(layout.hfi_iova),
                                  uint32_t(layout.log_iova), uint32_t(gGmuCtx.allocator().log().bytes()), 1};
-    if ((s = Sdm845GpuBootGmu(&gState, &gIo, &gmu))) return kitFail(6, s, "GMU boot");
+    s = Sdm845GpuBootGmu(&gState, &gIo, &gmu);
+    // The GPU RSC handshakes (recorded, never fatal): stop = RSCC STATUS0_DRV0 (bit 16), start = RSCC_CONTROL_ACK (bit 1).
+    gpuLog("GPU RSC stop %u (status0 %08x) start %u (ack %08x)\n", gState.rsc_stop_ok, gState.rsc_stop, gState.rsc_start_ok,
+           gState.rsc_start);
+    screen("rsc stop %u %x start %u %x", gState.rsc_stop_ok, gState.rsc_stop, gState.rsc_start_ok, gState.rsc_start);
+    if (s) {
+        if (gVa[WinGmu]) {
+            const volatile uint32_t *g = reinterpret_cast<const volatile uint32_t *>(gVa[WinGmu]);
+            const uint32_t init = g[0x501c], boot = g[0x5001], ack = g[0x9308];
+            gpuLog("GMU fw init result %08x boot config %08x rscc ack %08x\n", init, boot, ack);
+            screen("gmu init %x boot %x ack %x", init, boot, ack);
+        }
+        return kitFail(6, s, "GMU boot");
+    }
     // a6xx_gmu_gfx_rail_on: the highest GPU level's GX/MX ARC indices.
     const uint32_t vote = gStartup.gpu[gStartup.gpu_count - 1].vote;
     stage(7, 0);
