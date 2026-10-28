@@ -1760,3 +1760,32 @@ Run 43 packaged: kernel 35 3714f369…e92a (kernel 34 plus the `[cpu]` line). Pa
 `blueline-unixnu-mu-simplefb-xnu35-1cpu.img` 8eb20eb3ed7441f58962bac4c96a65ceac75091920266cf54cbd9a87bbfd97ba,
 `blueline-unixnu-mu-simplefb-xnu35-8cpu.img` 1b46d94e3cdc3fb2d03d51e0c23f08edf59cb310b9b037f8960c343c8060488b.
 Archive `build/share/blueline-run43-kernel35.7z` 0128807ac055ca4269e2f61e094e9768e57d0b9cc0d7ec13f0e107d59de6b9af.
+
+### Run 43 eight-core result and a process mistake (2026-10-28)
+
+Eight-core image (kernel 35, `ml-timeout-debug-ack=19200000`): **the first visible iPadOS UI.** PreBoard's "swipe up to upgrade"
+was drawn through the GPU path. There was no touch (no driver yet). It went black after about 30 s (PreBoard idle dim), and
+power did not wake it. Later it panicked with `thread wait info count mismatch while capturing snapshots for task …,
+expected 20, found 19 @kern_stackshot.c:4971`, `exec=SystemCommandsSuggestionsPlugin`, `last=AppleKeyStore`. Frames, from atos on the
+kernel 35 unstripped image: `kdp_stackshot_record_task` ← `stackshot_cpu_work_on_queue` ← `stackshot_cpu_do_work` ←
+`kdp_stackshot_kcdata_format` ← `do_stackshot` ← `handle_debugger_trap` ← `kdp_trap` ← `DebuggerTrapWithState`. It is the same
+class of failure as run 28: a thread changed state during a stackshot, so a core was still running, even with a 1 s ack
+timeout. That points to a core that never takes the debugger SGI, rather than a slow one. The eight-core dump's `[cpu]` line
+will show which core it is.
+
+**Mistake (Claude, recorded at the owner's request).** `refs/pixel3-ios` (erikkunz, iOS 16 on this same phone) already has:
+- power and volume up/down (0104, 0109);
+- touch (0105, 0113, 0114, 0118, 0121: ST FTM5 over bit-banged I2C, LDO19 over RPMh, interrupt-driven, edge gestures);
+- all 8 cores (0101, 0103, 0112, 0116, 0117), cpufreq (0106), a battery (0119/0120) and USB (0108/0122).
+
+Its HID path is ios-sweet's SweetHID (refs/ios-flame 0058): the buttons are a dedicated IOHIDEventService with primary usage
+Consumer/ConsumerControl. For run 41 I ported only its PMIC register reads (0104) and designed a new HID path on the iOS 17
+ShengHidInput. That cost runs 41 and 42. I also wrongly stated volume up could not be read (0109 reads it) and did not port
+touch at all. For SMP, 0101/0106/0112/0117 had been ported earlier, but when run 28 failed nobody went back to the reference's
+LOG and its SMP diagnostics (0103/0116). The owner's rule, now in the global CLAUDE.md: port the reference's whole working path
+first, and go back to it before debugging alone.
+
+Next, from the reference:
+1. Buttons and volume up as its dedicated consumer-control service, plus touch (FTM5 chain), adapted to the prelinked
+   IOHIDFamily of 22H384.
+2. Its SMP diagnostics (0116) to find the core that misses the debugger SGI.
