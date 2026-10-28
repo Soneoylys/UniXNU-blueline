@@ -1710,3 +1710,26 @@ marked Built-In, and there is no keyboard collection. Payload 081b0474…f0b6, b
 `build/boot/blueline-unixnu-mu-simplefb-xnu33-buttons.img` fe631cf47de8ff67ba11e4eceb23be0db7cb333124e2846660610a9de02efe09,
 archive `build/share/blueline-run42-kernel33-buttons.7z` 1d9ab5e8fb87664ca2b735c79fe50e47b7226edae1de8e2f9570603a36705aa2.
 The test note asks for a 1-minute wait after the last press, so logd writes its log.
+
+### Run 42 result (2026-10-28): the display stalls after the first GPU frame; run 43 prepared
+
+The owner saw no display change. Archive 41b4252d…17a5; UFS log: 137 rounds, 190 s, 0 errors.
+- `[keys]` 58 changes, 58 accepted reports (Telephony device), as in run 41. There is again no backboardd entry for the presses:
+  logd had not persisted its last minutes (boot F4A96E62; persisted entries end soon after the dim at mach 234 s, while the
+  presses were at mach 327 s). Userland stayed alive (spawns at 344 s), so this is not a system sleep.
+- **Main finding:** `[display] a 0 1 1 1 1 12 0 0 2 0 1`. backboardd's swaps keep being validated (18), but after the first
+  frame only 2 transfer events and 1 retirement happen, and no GPU offer is refused. From the first frame on, every
+  `IOMobileFramebufferSwapWait` takes 5.00 s and the kernel logs `IOMFB: swap_wait_gated: CommandWake didn't happen even after
+  5 seconds … cancelling swaps`. The queue kick returns silently before offering the next frame. That explains the black screen
+  (the lock screen is never redrawn), most of the 3.5 s per frame, and possibly the dead power key (undim needs a
+  CoreAnimation display transition, which waits on these swaps).
+- Rendering: 9 command buffers, 0.9 s mean commit-to-complete; 13 pipelines took 33.8 s.
+
+Owner goals added (2026-10-28): at most 20% loss against native GPU performance (60 fps), and 8 cores at full clock instead of
+one core.
+
+Run 43 (kernel 34): build-blueline-display.py adds reason codes to every silent exit of NativeLegacyDisplay's kickOnce,
+retireSwap and finishGpuSwap. BluelineDisplayProbe counts them (`blueline_kick_state`), and the UFS log has a `[kick]` line:
+1 transfer off, 2 still transferring, 3 powered off, 4 no mapping, 5 not primary, 6 no pending swap, 7 not validated, 8 no
+IOSurface, 9 offered to the GPU, 10 retirement could not activate, 11 GPU completion without a frame. Two payloads of the same kernel:
+one core, and eight cores (`cpus=8 sheng-smp=1`) as the first eight-core test since run 28's `not_in_kdp` assert.

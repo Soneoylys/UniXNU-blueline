@@ -25,6 +25,7 @@ extern volatile uint32_t blueline_gpu_state[8] __attribute__((weak_import));
 extern volatile uint32_t blueline_display_state[12] __attribute__((weak_import));
 extern volatile uint64_t native_gop_gpu_completions __attribute__((weak_import));
 extern volatile int32_t blueline_keys_state[8] __attribute__((weak_import));
+extern volatile uint32_t blueline_kick_state[12] __attribute__((weak_import));
 extern volatile uint32_t native_hid_input_events[8] __attribute__((weak_import));
 extern volatile int32_t native_hid_input_results[8] __attribute__((weak_import));
 extern size_t blueline_gpu_status_text(char *, size_t) __attribute__((weak_import));
@@ -104,6 +105,11 @@ static void compose(char *out, size_t cap, const char *why, unsigned now) {
     ADD("\n");
   }
   if (&native_gop_gpu_completions) ADD("[gop] gpu completions %llu\n", (unsigned long long)native_gop_gpu_completions);
+  if (&blueline_kick_state) {
+    ADD("[kick] last %u |", blueline_kick_state[0]);
+    for (unsigned i = 1; i < 12; ++i) ADD(" %u", blueline_kick_state[i]);
+    ADD("\n");
+  }
   if (&blueline_keys_state && &native_hid_input_events && &native_hid_input_results)
     ADD("[keys] stage %d arbiter %x apid %d kexts %x/%x changes %d mask %x errors %d | hid started %u reports %u last %x\n",
         blueline_keys_state[0], blueline_keys_state[1], blueline_keys_state[2], blueline_keys_state[3], blueline_keys_state[4],

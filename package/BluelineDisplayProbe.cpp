@@ -105,6 +105,15 @@ bool native_legacy_gpu_offer(void *display, IOMemoryDescriptor *memory, uint64_t
 }
 void native_legacy_gpu_fallback_observed(int status) {IOLog("BluelineDisplay: GPU frame failed %d\n", status);}
 void native_legacy_retirement_observed(IOService *) {blueline_display_state[11] = blueline_display_state[11] + 1;}
+// Why a swap-queue kick or retirement stopped (build-blueline-display.py edits): [reason] counts, [0] the last reason.
+// 1 transfer off, 2 previous frame still transferring, 3 display powered off, 4 no scanout mapping, 5 not primary,
+// 6 no pending swap, 7 pending swap not validated, 8 no IOSurface, 9 offered to the GPU, 10 retirement could not
+// activate the pending swap, 11 GPU completion without a frame.
+volatile uint32_t blueline_kick_state[12];
+void native_legacy_kick_observed(unsigned reason) {
+    if (reason < 12) blueline_kick_state[reason] = blueline_kick_state[reason] + 1;
+    blueline_kick_state[0] = reason;
+}
 void native_legacy_registration_observed(IOService *) {IOLog("BluelineDisplay: display registered\n");}
 void native_legacy_client_enter(task_t, uint32_t) {}
 void native_legacy_client_observed(IOReturn status, IOUserClient *client) {

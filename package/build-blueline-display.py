@@ -123,6 +123,23 @@ source = (gop / 'NativeLegacyDisplay.cpp').read_text()
 edits = [('reinterpret_cast<const unsigned char *>(this)+5592', 'reinterpret_cast<const unsigned char *>(this)+5856', 1),
          ('reinterpret_cast<void **>(this))[354]', 'reinterpret_cast<void **>(this))[364]', 1),
          ('+2624,', '+2632,', 3)]
+# Run 42: after the first GPU frame every swap stalled (18 validated, 2 transfers, 1 retirement, SwapWait 5 s each). Each silent
+# exit of the queue kick and of the retirement reports a reason (BluelineDisplayProbe.cpp native_legacy_kick_observed).
+edits += [('extern "C" void native_legacy_retirement_observed(IOService *);',
+           'extern "C" void native_legacy_retirement_observed(IOService *);\nextern "C" void native_legacy_kick_observed(unsigned);', 1),
+          ('        if(enabled!=1 || transferred || !logicalPM || !bootMapping || !primary)return;',
+           '        if(enabled!=1 || transferred || !logicalPM || !bootMapping || !primary){native_legacy_kick_observed('
+           'enabled!=1?1:transferred?2:!logicalPM?3:!bootMapping?4:5);return;}', 1),
+          ('        if(!request || !isValidated(request))return;',
+           '        if(!request || !isValidated(request)){native_legacy_kick_observed(!request?6:7);return;}', 1),
+          ('        if(!surface->metaCast("IOSurface"))return;',
+           '        if(!surface->metaCast("IOSurface")){native_legacy_kick_observed(8);return;}', 1),
+          ('        if(!activateOnlyPendingSwap(request))return false;',
+           '        if(!activateOnlyPendingSwap(request)){native_legacy_kick_observed(10);return false;}', 1),
+          ('        const OriginalLegacySwapRequest *request=gpuRequest;\n        if(!request)return;',
+           '        const OriginalLegacySwapRequest *request=gpuRequest;\n        if(!request){native_legacy_kick_observed(11);return;}', 1),
+          ('            if(early==1 && retireSwap(request,true)) {',
+           '            native_legacy_kick_observed(9);\n            if(early==1 && retireSwap(request,true)) {', 1)]
 for old, new, count in edits:
     if source.count(old) != count:
         fail(f'{old!r} occurs {source.count(old)} times, expected {count}')
