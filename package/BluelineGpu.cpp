@@ -312,13 +312,23 @@ bool pickSmmu(const char *who, unsigned &bank, unsigned &slot, unsigned avoidBan
     return ok;
 }
 unsigned gGmuBank = ~0u, gGmuSlot = ~0u;
+// Every SMMU register access is one 32-bit volatile load or store. The SDM845 hypervisor traps the SMMU and emulates
+// only single loads/stores with a valid syndrome; run 34 froze here when the compiler merged ID0/ID1 into one ldp
+// through a non-volatile pointer.
 void smmuSurvey(volatile uint8_t *smmu) {
-    const uint32_t *r = const_cast<const uint32_t *>(reinterpret_cast<volatile uint32_t *>(smmu));
-    IOLog("BluelineGpu: SMMU scr0=%08x id0=%08x id1=%08x id2=%08x gfsr=%08x\n", r[0], r[0x20 / 4], r[0x24 / 4], r[0x28 / 4],
-          r[0x48 / 4]);
-    const unsigned smrs = r[0x20 / 4] & 0xff;
+    const volatile uint32_t *r = reinterpret_cast<const volatile uint32_t *>(smmu);
+    const uint32_t scr0 = r[0];
+    screen("smmu scr0 %x", scr0);
+    const uint32_t id0 = r[0x20 / 4];
+    const uint32_t id1 = r[0x24 / 4];
+    const uint32_t id2 = r[0x28 / 4];
+    const uint32_t gfsr = r[0x48 / 4];
+    IOLog("BluelineGpu: SMMU scr0=%08x id0=%08x id1=%08x id2=%08x gfsr=%08x\n", scr0, id0, id1, id2, gfsr);
+    screen("smmu id0 %x id1 %x id2 %x", id0, id1, id2);
+    const unsigned smrs = id0 & 0xff;
     for (unsigned i = 0; i < smrs && i < 32; ++i) {
-        const uint32_t smr = r[0x800 / 4 + i], s2cr = r[0xc00 / 4 + i];
+        const uint32_t smr = r[0x800 / 4 + i];
+        const uint32_t s2cr = r[0xc00 / 4 + i];
         if (smr & (1u << 31)) IOLog("BluelineGpu: SMR%u=%08x S2CR%u=%08x (in use)\n", i, smr, i, s2cr);
     }
 }

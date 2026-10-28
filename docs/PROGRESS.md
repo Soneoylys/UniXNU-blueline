@@ -1381,3 +1381,19 @@ Run 34 (kernel 25 a5cf8c23a54827f2d833326496c43fe2ca015ae8557f56469335f9648590e2
 Payload ab82c40e8958b474d5b462f0291c10d89208dfdc546a8df689322d4f0bb61001, boot image
 `build/boot/blueline-unixnu-mu-simplefb-xnu25-gpu.img` 33729ccc48e6cd32d16b02b673af76306c3bd220f7f4019297d3e62f5ab5559b,
 archive `build/share/blueline-run34-kernel25-gpu.7z` d9af5bba8a0bb9eab644e94f86327b7aa377d0f100c554736207ef31ff74988b.
+
+### Run 34 result and prepared run 35 (2026-10-28)
+
+Run 34 (kernel 25), photo: status text works. The last lines are `GPU 4 CX power`, `ph 1 r gcc+0 first`, `ph 2 r gpucc+106c
+first`, `ph 3 r gcc+52004`, then `CX on; reading the GPU SMMU`, and the phone froze (line 0 stopped at `log 2 r12`, display
+0 frames). So CX power passed every poll, and the first GPU SMMU access hung the CPU. `smmuSurvey()` read the SMMU through
+a pointer with volatile cast away, and the compiler emitted `ldp w9, w10, [x0, #0x20]` (ID0/ID1). The SDM845 hypervisor
+traps SMMU accesses (Linux arm-smmu-qcom's S2CR quirks come from that emulation) and can only emulate single loads and
+stores with a valid syndrome. The stock DT's GPU SMMU (arm,smmu-kgsl@5040000) needs only gcc_gpu_memnoc_gfx_clk and
+gpu_cx_gdsc (0x509106c, hw-ctrl 0x5091540), both already on. Every other pair load or store in BluelineGpu.o hits normal
+memory; the kits use single volatile accesses.
+
+Run 35 (kernel 26 e1dfa385af55fc6592308ec71d085b3ecd1859678a5f865aff6fb2607f2b9947): single volatile SMMU reads, plus status
+lines after the first one (`smmu scr0`) and after the ID registers. Payload 87876daa…e906, boot image
+`build/boot/blueline-unixnu-mu-simplefb-xnu26-gpu.img` 9bc2b29e96c20574d58efb2eb8cb7d939f8041875a98c6551b12121dba69e1da,
+archive `build/share/blueline-run35-kernel26-gpu.7z` fb4405d7447411ef614c637b15afb8b06fcec39367036c63b6c96ca398827a9e.
