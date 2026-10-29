@@ -2254,3 +2254,32 @@ before the UFS log wrote its first slot. XNU's halt path checked again (`Debugge
 halted cores also do stackshot work), so the skipped-core explanation still stands until the dump says otherwise.
 Next: the run 51 dump (`[smp]`, `[gicr]`, msgbuf `BluelineSmp: check`). If the log is empty, show the per-core check on the
 panic screen in the next run.
+
+### Run 51 dump decoded (2026-10-28): no SGI is ever generated; every core keeps SIGPdisabled
+
+`build/readback/run51/decoded/blueline-1fddd974/` (boot ID 0x1fddd974, 134 rounds, 266 s, zero write errors). Last slot:
+```
+[cpu] ipi sent 140 | timer 11334 10107 9509 3730 12528 13263 13628 15688 | sgi 0 0 0 0 0 0 0 0
+[gic] 0 800ff 12 7b0418 0 f0 1 1
+[smp] check -2 -2 -2 -2 -2 -2 -2 -2 | sig 80000000 x8 | state 4/0 4/0 4/0 6/37 4/0 4/0 6/81 4/0
+[gicr] 10000000/800ff/0 (cores 0-2, 4-7) 10080000/800ff/0 (core 3)
+```
+- All eight cores, the boot core included, still have `SIGPdisabled` (0x80000000) after the 5 s wait and after 20 IPIs
+  each from the checking core (`check -2`). `ipi sent` rose from 8 to 140, so `ArmCpu::signalCPU` wrote ICC_SGI1R_EL1
+  ~140 times, and no core ever took an SGI (`sgi` 0). Every core is alive and scheduling (timer counts 3.7k-15.7k,
+  states idle 4 / running 6). The first slot already shows the boot core at 0x80000000.
+- `[gicr]`: ISENABLER0 reads 0x800ff on every core: SGIs 0-7 and the timer PPI 19 enabled. With GICD_CTLR.DS = 0
+  (GICD_TYPER 0x7b0418 has SecurityExtn set), Non-secure reads of Group 0 bits are RAZ, so SGIs 0-7 are Non-secure
+  Group 1 and enabled; SGIs 8-15 read 0 (secure, ours never stick). ISPENDR0 never shows bit 1: SGI 1 is not even pending.
+  Bit 28 (a PPI nobody enabled) is pending everywhere; bit 19 is the timer on core 3. WAKER 0 (awake). IGROUPR0 reads 0
+  only because it is RAZ to Non-secure accesses.
+- So on this boot path ICC_SGI1R_EL1 writes from EL1 produce no SGI at all, in either direction (self or cross-core).
+  That is why no core ever cleared SIGPdisabled, why XNU skips every core in DebuggerXCallEnter, and why stackshots run
+  with all other cores live. It also explains run 43 (`ipi sent` 8, `sgi` 0).
+- The reference never met this: pixel3-ios boots its own shim straight from ABL (p2-shim) and its probe
+  (p1-probe/probe.c) sends the same ICC_SGI1R encoding successfully. We boot through Mu UEFI + DarwinBoot. sheng's
+  SM8550, also Mu-booted, recorded the same thing in ArmCpu ("ICC_SGI1R_EL1 generates nothing on this board") and moved
+  to software-pended SPIs. In run 49 (SPI IPIs at INTID 732, implemented: ITLinesNumber 0x18 = 800 INTIDs) CPU 6 had
+  cleared SIGPdisabled, so the SPI path delivers at least some IPIs; it then missed one SIGPdebug.
+Next candidate: run 51's kernel and diagnostics with SPI IPIs (`armcpu-spi-ipi=1`, `armcpu-spi-ipi-base=732`), a
+payload-only change; the `[smp]` line then shows per core whether SPIs clear SIGPdisabled.
