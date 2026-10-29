@@ -2283,3 +2283,36 @@ panic screen in the next run.
   cleared SIGPdisabled, so the SPI path delivers at least some IPIs; it then missed one SIGPdebug.
 Next candidate: run 51's kernel and diagnostics with SPI IPIs (`armcpu-spi-ipi=1`, `armcpu-spi-ipi-base=732`), a
 payload-only change; the `[smp]` line then shows per core whether SPIs clear SIGPdisabled.
+
+### SGI investigation (2026-10-28, no phone run): why ICC_SGI1R_EL1 produces nothing on our boot path
+
+Owner: "Investigate SGIs first". Read-only comparison of every layer between ABL and ArmCpu.
+- **Our GIC setup matches the working ones.** ios-sweet (refs/ios-flame 0004 `pe_init_fiq`), used by pixel3-ios with SGI 1
+  working on all eight cores: IGROUPR0 all Group 1, ISENABLER0 timer + SGI 1, ICC_SRE.SRE, ICC_BPR1 0, ICC_PMR 0xff,
+  EOImode 0, GICD_CTLR |= ARE_NS | EnableGrp1A | EnableGrp1 with an RWP wait, ICC_IGRPEN1 1. ArmCpu does the same (no RWP
+  wait, no bit 0, which is RES0 with ARE_NS set). pixel3-ios p1-probe/probe.c sends the same ICC_SGI1R encoding as
+  ArmCpu::signalCPU (Aff1 = core, TargetList bit 0, INTID 1) and it arrived in 4-7 us. Run 51's readback agrees: SGIs
+  0-7 are Non-secure Group 1 and enabled on every core, the timer PPI on the same interface is delivered.
+- **What differs is the path in between.** pixel3-ios boots its own shim straight from ABL; ios-sweet notes "ABL leaves
+  only ARE_NS set". We boot Mu UEFI, then DarwinBoot. Mu's GICv3 driver (edk2-win2 mu_basecore
+  ArmPkg/Drivers/ArmGicDxe/GicV3/ArmGicV3Dxe.c) sets ARE at start-up, and at ExitBootServices disables every SPI, clears
+  ICC_IGRPEN1 and calls `ArmGicDisableDistributor`, which writes **GICD_CTLR = 0** (ArmGicCommonDxe.c:235): that also
+  clears ARE_NS, not only the group enables. ArmCpu sets ARE_NS again much later. The GICv3 architecture treats changing
+  affinity routing on a running GIC as unpredictable; if this implementation lets the Non-secure side clear ARE_NS, SGI
+  generation through ICC_SGI1R can be left broken while PPIs and SPIs (run 49) still work. sheng's SM8550, also Mu-booted,
+  shows exactly that symptom ("ICC_SGI1R_EL1 generates nothing", moved to SPI IPIs). DarwinBoot does not touch the GIC.
+  None of the five other Mu_Basecore patches or Gic-Spurious.patch change this. **Hypothesis H1** (most likely).
+- **H2: the EL2 hypervisor traps ICC_SGI1R_EL1.** Less likely: pixel3-ios ran under the same hypervisor with working SGIs.
+  sheng's `armcpu_sgi_selfprobe` (in the fajita/sirius/polaris ArmCpu) times one ICC_SGI1R write against an ICC_PMR read
+  to detect a trap, but our only run carrying an SGI probe (run 47) watchdog-reset before logging, because that probe
+  also used ICC_SGI0R/IAR0 (Group 0, owned by EL3). It was never measured.
+- Not it: SGI encoding, affinity (MPIDR 0x81000000 has MT set; Aff0 0, core in Aff1, as the reference), SGI group or
+  enable, redistributor WAKER, priorities (timer at the same priority is delivered).
+
+Proposed test run (not built), Group 1 and read-only GIC accesses only:
+1. ArmCpu: record GICD_CTLR as found at entry, before its own write (shows whether Mu left ARE_NS cleared).
+2. Self-test on each core with IRQs masked: one ICC_SGI1R write to itself, timed against an ICC_PMR read (H2), then poll
+   ICC_HPPIR1 and GICR_ISPENDR0 for SGI 1.
+3. Software-pend SGI 1 through GICR_ISPENDR0 (own frame, then another core's): shows whether the receive side works, and
+   would itself be a working IPI path if ICC_SGI1R stays dead.
+4. Firmware: a Mu_Basecore patch so ExitBootServices clears only the group enables and keeps ARE_NS (fix for H1).
