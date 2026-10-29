@@ -1,4 +1,11 @@
 HANDOFF.md
+# Agent working directories
+.claude/
+.codex/
+.gemini/
+.cursor/
+.aider*
+.copilot/
 # Proprietary inputs (Pixel 3 factory image members, extracted XBL drivers) and build outputs
 /.cache/
 /build/

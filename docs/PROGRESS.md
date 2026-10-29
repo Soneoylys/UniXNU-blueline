@@ -2337,3 +2337,58 @@ archive `build/share/blueline-run52-kernel42-sgitest.7z` 3494cfb87aac80174700b6d
 (download verified). Reading: `[smp] check` ms values = the fix works (self-IPIs land); `[sgit]` wr ≫ rd = trapped to EL2;
 HPPIR1/ISPENDR0 showing the SGI = generated; "taken" > 0 after the GICR write = the receive side works (then
 armcpu-gicr-ipi=1 is a usable IPI path).
+
+### Run 52 result (2026-10-28): stackshot sync timeout on CPU 6
+
+Owner supplied one panic photo. Full verbatim transcription of the screen:
+
+```
+ARWINBOOT: hand-off to the kernel
+
+kernel    va 0xFFFFFFFF004130000  pa 0xB8130000
+entry     pa 0xBB49A488
+args      pa 0xBC734000  window 0x80000000 bytes
+video     base 0x9D400000  1080x2160  row 4320 bytes  32 bpp
+entry words 140006F5 00000000 00000000 00000000
+CurrentEL 1  SCTLR_EL1 0xC01800  TCR_EL1 0x280803518
+ID_AA64MMFR0_EL1 0x101122  (PARange 2, 4 KiB granule supported)
+ID_AA64PFR0_EL1  0x11112222
+
+DebuggerXCallEnter>Debugger synch pending on cpu 6
+  @model_dep.c:1182
+frames fffffff0074a30cc fffffff0072e7c54 fffffff0074a7ff0 ff
+fffff0074982cc fffffff007aba8c8 fffffff007497660 fffffff0072
+e7508 fffffff0072a779c fffffff0072a877c fffffff0077ed23c fff
+ffff007900010 fffffff007aba9f8 fffffff007497660 ffffff81e87e
+2b6c
+exec=ndoagent der=1511 fail=- last=IOAcceleratorES
+```
+
+Notes on the transcription:
+- The `exec=` field reads `ndoagent` on the photo; OLED text at this resolution makes `r`/`n` ambiguous. The previous
+  agent read it as `renderagent`, which is the iOS process that takes stackshots and is consistent with the backtrace.
+  Either reading matches the stackshot syscall path.
+- The DarwinBoot handoff block confirms: kernel va 0xFFFFFFFF004130000 pa 0xB8130000, 2 GiB window (0x80000000),
+  video at 0x9D400000 1080x2160 32 bpp, CurrentEL 1 (EL1, expected). These match the run 52 build parameters.
+- The photo carries no build tag or image hash, so its assignment to run 52/kernel 42 is contextual, not proven.
+
+Symbolized the legible frame addresses against the run-52 binary (kernel 42,
+`87e97147b5125e3b621bda64a200e1be89208681120b5522a0c9dcb4ae317774`): `DebuggerXCallReturn` ←
+`handle_debugger_trap` ← `kdp_trap` ← `DebuggerTrapWithState` ← `stackshot_trap` ← `kern_stack_snapshot_internal` ←
+`stack_snapshot_with_config` ← `unix_syscall`. Interpretation: `renderagent` requested a stackshot and the debugger
+rendezvous (`DebuggerXCallEnter`) timed out waiting for CPU 6 to acknowledge the cross-core stop. This is the run 49
+panic class (`model_dep.c:1182`) recurring, not a new failure mode. The system booted far enough into userland for
+`renderagent` to run a stackshot syscall, which is progress (eight-core userland reached).
+
+The trailing note is AMFI's diagnostic line, not the panic cause: executable `renderagent`, DER entitlement size 1511,
+no factory failure (`fail=-`), last bounded entitlement string `IOAcceleratorES`. It is not evidence that an
+IOAcceleratorES/GPU fault occurred; the symbolized stackshot frames define the panic path.
+
+Open questions this photo cannot settle: whether Mu's ExitBootServices kept ARE_NS, whether `ICC_SGI1R_EL1` writes are
+trapped or dropped, whether GICR `ISPENDR0` pend is delivered locally/remotely, and whether CPU 6 never received,
+masked, or was never sent SIGPdebug. Run 52's own diagnostics answer these: `[gicd] entry .. after-are ..`,
+per-core `[sgit]` (write/read ticks, HPPIR1, ISPENDR0, taken, remote taken), `[smp]` check/sig/state and `[gicr]`.
+
+Next evidence is `blueline-readback-run52.7z` captured through TWRP before another XNU boot. Do not change IPI delivery
+mode, the firmware ARE_NS patch, `ml-timeout-debug-ack`, watchdog policy or CPU topology from this photo alone. No code,
+firmware, kernel, payload or image change was made for this analysis.
