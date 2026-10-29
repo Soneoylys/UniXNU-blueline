@@ -35,6 +35,15 @@ extern volatile uint32_t armcpu_gic_boot[8] __attribute__((weak_import));
 extern volatile uint32_t native_hid_input_events[8] __attribute__((weak_import));
 extern volatile int32_t native_hid_input_results[8] __attribute__((weak_import));
 extern size_t blueline_gpu_status_text(char *, size_t) __attribute__((weak_import));
+// BluelineSmpDiag.c (same archive): ios-sweet start-up check and pixel3-ios 0116 per-core fields.
+extern void blueline_smp_start(void) __attribute__((weak_import));
+extern void blueline_smp_sample(void) __attribute__((weak_import));
+extern volatile uint32_t blueline_smp_cores __attribute__((weak_import));
+extern volatile uint32_t blueline_smp_sig[8] __attribute__((weak_import));
+extern volatile int32_t blueline_smp_state[8] __attribute__((weak_import));
+extern volatile int32_t blueline_smp_pri[8] __attribute__((weak_import));
+extern volatile uint32_t blueline_smp_gicr[8][3] __attribute__((weak_import));
+extern volatile int32_t blueline_smp_check[8] __attribute__((weak_import));
 // What the Metal plugin told the driver (UniXNU drivers/Adreno740/NativeAdrenoPublish.cpp; same layouts): its progress markers (open types
 // 0x4147xxxx, each also a sandbox "deny iokit-open-user-client" line in the system log), its result lines, other processes' failure lines,
 // the per-process open records and the bridge's telemetry rows.
@@ -122,6 +131,21 @@ static void compose(char *out, size_t cap, const char *why, unsigned now) {
   if (&armcpu_gic_boot) {
     ADD("[gic]");
     for (unsigned i = 0; i < 8; ++i) ADD(" %x", armcpu_gic_boot[i]);
+    ADD("\n");
+  }
+  // Per core: start-up check (ms until the self-IPI cleared SIGPdisabled, 10000+n after n kicks, -2 never, -3 not started),
+  // cpu_signal flags, processor state and priority; then GICR ISPENDR0/ISENABLER0/WAKER (pixel3-ios 0116).
+  if (&blueline_smp_sample && &blueline_smp_check) {
+    blueline_smp_sample();
+    const unsigned n = blueline_smp_cores < 8 ? blueline_smp_cores : 8;
+    ADD("[smp] check");
+    for (unsigned i = 0; i < n; ++i) ADD(" %d", blueline_smp_check[i]);
+    ADD(" | sig");
+    for (unsigned i = 0; i < n; ++i) ADD(" %x", blueline_smp_sig[i]);
+    ADD(" | state");
+    for (unsigned i = 0; i < n; ++i) ADD(" %d/%d", blueline_smp_state[i], blueline_smp_pri[i]);
+    ADD("\n[gicr]");
+    for (unsigned i = 0; i < n; ++i) ADD(" %x/%x/%x", blueline_smp_gicr[i][0], blueline_smp_gicr[i][1], blueline_smp_gicr[i][2]);
     ADD("\n");
   }
   if (&blueline_touch_state)
@@ -253,6 +277,7 @@ void blueline_log_start(void) {
   static int started;
   if (started) return;
   started = 1;
+  if (&blueline_smp_start) blueline_smp_start();
   uint32_t mode = 0;
   if (!PE_parse_boot_argn("sheng-log", &mode, sizeof mode) || mode != 1) return;
   if (!&native_ufs_log_open || !&native_ufs_log_write || !&native_ufs_log_sync) return;

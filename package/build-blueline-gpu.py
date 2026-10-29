@@ -20,16 +20,18 @@ out = tree / 'build/blueline-gpu'
 out.mkdir(parents=True, exist_ok=True)
 obj_dir = tree / 'build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837'
 recipes = {'.c': json.loads((obj_dir / 'bsd/DEVELOPMENT/bsd_init.o.json').read_text().strip().rstrip(',')),
-           '.cpp': json.loads((obj_dir / 'iokit/DEVELOPMENT/IOPlatformExpert.cpo.json').read_text().strip().rstrip(','))}
+           '.cpp': json.loads((obj_dir / 'iokit/DEVELOPMENT/IOPlatformExpert.cpo.json').read_text().strip().rstrip(',')),
+           # BluelineSmpDiag.c reads other cores' cpu_data (MACH_KERNEL_PRIVATE), so it is built like osfmk/arm/cpu_common.c.
+           'osfmk': json.loads((obj_dir / 'osfmk/DEVELOPMENT/cpu_common.o.json').read_text().strip().rstrip(','))}
 core = components / 'drivers/Adreno740'
-sources = [here / 'BluelineGpuPolicy.c', here / 'BluelineGpu.cpp', here / 'BluelineLog.c', core / 'NativeAdrenoSha256.cpp',
-           core / 'NativeAdrenoPublish.cpp']
+sources = [here / 'BluelineGpuPolicy.c', here / 'BluelineGpu.cpp', here / 'BluelineLog.c', here / 'BluelineSmpDiag.c',
+           core / 'NativeAdrenoSha256.cpp', core / 'NativeAdrenoPublish.cpp']
 includes = [here, core, components / 'kits/ArmSmmu4K', components / 'kits/AdrenoFirmware', components / 'kits/AdrenoPM4',
             soc / 'kits/Sdm845Gpu', tree / '.cache/xnu-work/osfmk']
 objects, records = [], []
 for source in sources:
     obj = out / (source.stem + '.o')
-    recipe = recipes[source.suffix]
+    recipe = recipes['osfmk' if source.name == 'BluelineSmpDiag.c' else source.suffix]
     cmd = module.command(recipe, source, obj, includes)
     run = subprocess.run(cmd, cwd=recipe['directory'], capture_output=True, text=True)
     (out / (source.stem + '.log')).write_text(run.stdout + run.stderr, encoding='utf-8')
