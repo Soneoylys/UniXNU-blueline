@@ -2316,3 +2316,24 @@ Proposed test run (not built), Group 1 and read-only GIC accesses only:
 3. Software-pend SGI 1 through GICR_ISPENDR0 (own frame, then another core's): shows whether the receive side works, and
    would itself be a working IPI path if ICC_SGI1R stays dead.
 4. Firmware: a Mu_Basecore patch so ExitBootServices clears only the group enables and keeps ARE_NS (fix for H1).
+
+### Run 52 prepared (2026-10-28): kernel 42, SGI tests, firmware keeps ARE_NS
+
+Owner: "Build run 52" (the four proposed SGI tests including the firmware fix).
+- Firmware: `uefi-blueline/Resources/MuPatches/Gic-Keep-ARE.patch` (uefi-blueline db502a89), applied by build-firmware.ps1:
+  Mu's GicV3ExitBootServicesEvent clears only the group enables (`MmioAnd32 (GICD_CTLR, ARE)`) instead of writing 0.
+  FD 09178948d1b6db3296b29762e56298488787fbc734d6fbe9600195bf3b8cf79c (previous kept as `-pre-keepare.fd`, b9da0c01…2afe).
+- ArmCpu (UniXNU-sdm845-common 9938f20, pinned): `armcpu_gicd_ctlr_entry` (GICD_CTLR as found) and `armcpu_gicd_ctlr_are`
+  (after setting ARE_NS); opt-in `armcpu-gicr-ipi=1` (IPI = set pending in the target's GICR_ISPENDR0), off in run 52.
+- BluelineSmpDiag (device 70bec13): after the start-up wait, per core with a bound thread and IRQs masked: timed ICC_SGI1R
+  self-write vs ICC_PMR read, ICC_HPPIR1 and GICR_ISPENDR0 readbacks, whether ArmCpu then took it; then the IPI SGI pended
+  through the core's own GICR_ISPENDR0; then each core's GICR_ISPENDR0 written from the checking thread. Kicks via
+  PE_cpu_signal only afterwards. Log lines `[gicd] entry .. after-are ..` and `[sgit] i: cpu | wr/rd ticks | pend0 hppir
+  pend1 taken | hppir pend taken | remote taken`.
+Kernel 42 87e97147b5125e3b621bda64a200e1be89208681120b5522a0c9dcb4ae317774; payload `payload-k42-run52.img`
+801835fc53fc7f25ebb817b5766a3566440ec90899b662177dd7dbd9b9bc9096 (run 51 settings, SGI 1); boot image
+`build/boot/blueline-unixnu-mu-textmode-xnu42-swrender-8cpu.img` 770f96955e471aaec9f2f48f6d660ccd618b6e1e3766816896a12b1b5b3cdbec;
+archive `build/share/blueline-run52-kernel42-sgitest.7z` 3494cfb87aac80174700b6d1057113d216fe7b08fdc3782a70e28efc57e98a7d
+(download verified). Reading: `[smp] check` ms values = the fix works (self-IPIs land); `[sgit]` wr ≫ rd = trapped to EL2;
+HPPIR1/ISPENDR0 showing the SGI = generated; "taken" > 0 after the GICR write = the receive side works (then
+armcpu-gicr-ipi=1 is a usable IPI path).
