@@ -2191,3 +2191,34 @@ panic, so the run 49 note ("in run 48 every core probably acknowledged") is wron
 sync check noticing. Candidates: a running core that DebuggerXCallEnter never signals (missing or shared
 `CpuDataEntries`/cpu number, `max_cpu` below 7, a core counted offline) or one that acknowledges and keeps running.
 Text-mode boot menu: no comment yet from the owner.
+
+### Reference check (pixel3-ios / ios-sweet) after run 50: the missing self-IPI check
+
+Mechanism, from xnu-11417 source:
+- `cpu_signal()` returns KERN_FAILURE, before sending anything, while the target's `cpu_signal` has `SIGPdisabled`
+  (osfmk/arm/cpu_common.c:455-461). Every core starts with it set (arm64/cpu.c:800); it is cleared only when that core
+  takes its first IPI (`cpu_signal_handler_internal(FALSE)`, cpu_common.c:583-588).
+- `DebuggerXCallEnter` counts and waits only for cores whose `cpu_signal()` succeeded; with a stackshot's
+  `proceed_on_sync_failure = FALSE` a failure is skipped without a log line (model_dep.c:1088-1094). A core that never
+  cleared `SIGPdisabled` therefore keeps running through every stackshot: run 50's `assert(not_in_kdp)` core and the
+  count mismatch. No "synch pending" panic, because nothing waited for it.
+- On AppleARMCPU kernels (ours) XNU does not wait for the self-IPI (`wait_for_cpu_signal = false`, kern/startup.c:977),
+  so a core whose self-IPI is lost boots and schedules normally.
+- Run 43's `[cpu]` line fits exactly: `ipi sent` stayed 8 for the whole boot (the eight start-up self-IPIs from
+  `ArmCpu::initCPU`, `armcpu-self-ipi=1`) and `sgi` was 0 on every core. No self-IPI landed, no core cleared
+  `SIGPdisabled`, and the kernel never sent another IPI because `cpu_signal()` failed for every target. No dump assigned
+  to an SGI 1 run exists yet (run 47's readback was a retained earlier boot), so whether SGI 1 self-IPIs land is open.
+  Run 49 (SPI): CPU 6 had cleared it (its `cpu_signal()` succeeded) but then did not acknowledge SIGPdebug.
+
+What the reference does that we do not: ios-sweet `SweetCPU::startAll` (refs/ios-flame 0065-sweet-smp-psci.patch, which
+pixel3-ios builds on) starts each core and then waits up to 5 s for `sweet_cpu_signal_is_enabled(i)` (an XNU accessor:
+`!(CpuDataEntries[i].cpu_data_vaddr->cpu_signal & SIGPdisabled)`), logging "came alive; SGI1 OK" or panicking
+"startup timeout (reset/MMU/GIC/SGI)". pixel3-ios 0116 then logs per core: IPIs sent, the `cpu_signal` flags
+(comment: "SIGPdisabled = 0x80000000 makes cpu_signal() drop every IPI to it"), processor state/priority/thread, and the
+GICR SGI pending/enable bits and WAKER. Our ArmCpu (UniXNU-sdm845-common) sends the self-IPI but never checks it landed.
+The pixel3-ios LOG has no stackshot notes; its probe showed SGI 1 with XNU's encoding reaching every core in 4-7 us.
+
+Proposed port (not started): the ios-sweet accessor as a device XNU patch, ArmCpu waiting for each core's
+`SIGPdisabled` to clear after `initCPU` (logging the core that fails instead of running on silently), and the 0116
+per-core fields in the UFS log's `[cpu]` line. The run 50 dump's `[cpu]` line would already show whether SGI 1
+self-IPIs land.
