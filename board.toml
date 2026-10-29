@@ -159,6 +159,13 @@ kernel_args = [
   "sheng-vsync=60",
 ]
 
+# Boot menu as plain UEFI text (owner, 2026-10-28): UniXNU's menu on the firmware text console, no logo, no graphical
+# layout. Needs the payload.py [payload.ui] pass-through (Mac UniXNU 45968dd). The firmware's Mu boot logo is dropped
+# separately in uefi-blueline (BootGraphicsLibNull in blueline.dsc).
+[payload.ui]
+console = "text"
+logo = false
+
 [payload.adt]
 chip_id = "207"
 # The System volume of the 22H384 OS image (094-32804-044.dmg after AEA decryption, "CrystalUpdate22H384.J171J172OS").

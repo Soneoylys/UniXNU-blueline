@@ -2137,3 +2137,30 @@ Kernel 40 7a88ff38…3182, eight-core payload d92b627d…568b (trust 26ed8386…
 `build/share/blueline-run49-kernel40-swrender.7z` b536f353e68f18fe63ad0341912a0c940bd0d35f265e4e43def45b2c54c67a8f
 (Mac ~/blueline/run49-build.sh).
 In its dump, check `[gic]` GICD_TYPER (ITLinesNumber = bits 4:0), `[cpu]` IPI counts above 0 on all cores, and whether the stackshot panic is gone.
+
+### Run 49 result (2026-10-28): SPI IPIs, CPU 6 never acknowledged; text-mode boot menu prepared
+
+Photo only (no dump yet). After `DARWINBOOT: hand-off to the kernel` the phone panicked with
+`DebuggerXCallEnter>Debugger synch pending on cpu 6 @model_dep.c:1182`, `exec=SiriSuggestionsBookkeepingService der=3121`.
+Symbolized against kernel 40: `DebuggerXCallEnter` (return address lands in `DebuggerXCallReturn`) ← `handle_debugger_trap` ←
+`kdp_trap` ← `DebuggerTrapWithState` ← `stackshot_trap` ← `kern_stack_snapshot_internal` ← `stack_snapshot_with_config` ←
+`unix_syscall`. A stackshot passes `proceed_on_sync_failure = FALSE` (kern_stackshot.c:1153), so any core that does not
+acknowledge SIGPdebug within `debug_ack_timeout` (1 s here, `ml-timeout-debug-ack=19200000`) panics with this message;
+`timeout_cpu` is the last such core in CPU order, so CPU 6 failed (CPUs below it unknown, CPU 7 acknowledged or was the caller).
+SPI IPIs at INTID 732..739 therefore did not reach CPU 6.
+
+Correction to the run 48 reading: because of that rule, run 48 (SGI 1) would have panicked the same way if a core had ignored
+SGI 1. It did not, so in run 48 every core probably acknowledged (or was counted offline), and "a core still running" was
+likely wrong. xnu-11417 runs stackshots on all halted cores in parallel (`stackshot_cpu_do_work`); the run 48 NULL write
+(and the earlier "thread wait info count mismatch") may come from that parallel path instead. The kernel has a boot-arg
+switch for it: `stackshot_single_thread=1` (kern_stackshot.c:135, used at :2702). Not built yet: needs the owner's go-ahead.
+
+Text-mode boot menu (owner request): two graphical layers were drawn before the kernel.
+- Mu's BootManagerLib draws `BootLogo.bmp` (`DisplayBootGraphic (BG_SYSTEM_LOGO)`). uefi-blueline `2e7bd73b` maps
+  `BootGraphicsLib` to Mu's `BootGraphicsLibNull` in blueline.dsc (BdsDxe, MsBootPolicy and MassStorage all link it).
+  That commit also records the working-tree edits every firmware since run 20 was built from (no DarwinBoot band,
+  MemoryMapLib RAM partition, BluelineBootMemoryDxe clipping). FD `build/firmware/blueline-mu-simplefb-debug.fd`
+  b9da0c0163a48e7985a23dc1a92211c5e67a5e5c27f651a14e50984ab7e72afe (previous FD kept as `-pre-textmode.fd`, 3e744b3c…b7f2).
+- UniXNU's menu already supports `[ui] console = "text"` (UniXNULib Config.c/Ui.c: the menu then uses ConOut, not GOP).
+  The payload builder never wrote `[ui]`; Mac UniXNU `45968dd` (local, not upstream) passes `[payload.ui]` through, and
+  board.toml sets `console = "text"`, `logo = false`. Takes effect on the next payload build.
