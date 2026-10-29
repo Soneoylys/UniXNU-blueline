@@ -2164,3 +2164,14 @@ Text-mode boot menu (owner request): two graphical layers were drawn before the 
 - UniXNU's menu already supports `[ui] console = "text"` (UniXNULib Config.c/Ui.c: the menu then uses ConOut, not GOP).
   The payload builder never wrote `[ui]`; Mac UniXNU `45968dd` (local, not upstream) passes `[payload.ui]` through, and
   board.toml sets `console = "text"`, `logo = false`. Takes effect on the next payload build.
+
+### Run 50 prepared (2026-10-28): text-mode boot menu, SGI 1, single-thread stackshots
+
+Kernel 40 unchanged. Eight-core payload (Mac ~/blueline/run50-build.sh, same cpus=8/sheng-smp=1/ml-timeout-debug-ack edit as
+run 49) with board.toml back on SGI 1 (`armcpu-spi-ipi` and `armcpu-spi-ipi-base` removed) plus `stackshot_single_thread=1`
+(string present in kernel 40), and `[payload.ui] console = "text"`, `logo = false` (verified inside the image: unixnu.toml has
+the `[ui]` table). Payload `payload-k40-run50.img` 8ec84bc4078d07ac0967602f804e4fb9324a6e3ec99ea31c799f4c205ee024a2 (trust
+26ed8386…). Firmware FD b9da0c01…2afe (uefi-blueline 2e7bd73b, BootGraphicsLibNull). Boot image
+`build/boot/blueline-unixnu-mu-textmode-xnu40-swrender-8cpu.img` 0b38cf679659116380651124656ec82d240965ef0980c9178bb5301e2365d5cb,
+archive `build/share/blueline-run50-kernel40-textmode.7z` 8ae92298315b435f9950ec07d299124906cbaeddc55a3b015df6d30511e65f04
+(download verified). Expect: text-only boot menu; if the stackshot panic is gone, the parallel stackshot path was the cause.
