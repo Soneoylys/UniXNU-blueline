@@ -2242,3 +2242,15 @@ settings: SGI 1, stackshot_single_thread=1, text-mode menu; trust 26ed8386…). 
 archive `build/share/blueline-run51-kernel41-smpcheck.7z` bdfdc62e90d072e6ecb3dc71378a41b66ff1fafae0604e87b1544b59d8009086
 (download verified). Read in the dump: `[smp] check` per core, `sig` (0x80000000 = still disabled), `[gicr]` pending bit 1
 (SGI 1 pending but never taken) vs not pending (never generated or routed).
+
+### Run 51 result (2026-10-28): the same running-core assert, one panic screen
+
+Photo only. `pmap.c:3577 Assertion failed: not_in_kdp` at pc 0xfffffff007ab6188 (kernel 41: `pmap_destroy_internal.cold.3`,
+the inlined `pmap_tt1_deallocate`) ← `pmap_destroy` ← `vm_map_destroy` ← `posix_spawn` ← `unix_syscall`;
+`exec=BTAudioHALPlugin der=0 last=IOAcceleratorES`. Identical to run 50's second layer: a core ran ordinary kernel code
+while a stackshot was in progress. This time only that core's panic screen is drawn (no count-mismatch layer).
+Not yet known whether the start-up check ran before the panic, or what it found: `der=0` suggests an early panic, possibly
+before the UFS log wrote its first slot. XNU's halt path checked again (`DebuggerXCallEnter`/`DebuggerXCall`, normal; the
+halted cores also do stackshot work), so the skipped-core explanation still stands until the dump says otherwise.
+Next: the run 51 dump (`[smp]`, `[gicr]`, msgbuf `BluelineSmp: check`). If the log is empty, show the per-core check on the
+panic screen in the next run.
