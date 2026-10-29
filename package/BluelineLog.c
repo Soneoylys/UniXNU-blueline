@@ -44,6 +44,9 @@ extern volatile int32_t blueline_smp_state[8] __attribute__((weak_import));
 extern volatile int32_t blueline_smp_pri[8] __attribute__((weak_import));
 extern volatile uint32_t blueline_smp_gicr[8][3] __attribute__((weak_import));
 extern volatile int32_t blueline_smp_check[8] __attribute__((weak_import));
+extern volatile int32_t blueline_sgi_test[8][11] __attribute__((weak_import));
+extern volatile uint32_t armcpu_gicd_ctlr_entry __attribute__((weak_import));
+extern volatile uint32_t armcpu_gicd_ctlr_are __attribute__((weak_import));
 // What the Metal plugin told the driver (UniXNU drivers/Adreno740/NativeAdrenoPublish.cpp; same layouts): its progress markers (open types
 // 0x4147xxxx, each also a sandbox "deny iokit-open-user-client" line in the system log), its result lines, other processes' failure lines,
 // the per-process open records and the bridge's telemetry rows.
@@ -147,6 +150,19 @@ static void compose(char *out, size_t cap, const char *why, unsigned now) {
     ADD("\n[gicr]");
     for (unsigned i = 0; i < n; ++i) ADD(" %x/%x/%x", blueline_smp_gicr[i][0], blueline_smp_gicr[i][1], blueline_smp_gicr[i][2]);
     ADD("\n");
+  }
+  // GICD_CTLR as the firmware left it and after ArmCpu set ARE_NS.
+  if (&armcpu_gicd_ctlr_entry && &armcpu_gicd_ctlr_are)
+    ADD("[gicd] entry %x after-are %x\n", armcpu_gicd_ctlr_entry, armcpu_gicd_ctlr_are);
+  // SGI tests per core (BluelineSmpDiag.c): cpu | SGI1R write/PMR read ticks | ISPENDR0 before, HPPIR1 and ISPENDR0 after
+  // the ICC_SGI1R write, taken | HPPIR1 and ISPENDR0 after the GICR_ISPENDR0 write, taken | taken after another core's write.
+  if (&blueline_sgi_test && &blueline_smp_cores) {
+    const unsigned n = blueline_smp_cores < 8 ? blueline_smp_cores : 8;
+    for (unsigned i = 0; i < n; ++i) {
+      const volatile int32_t *t = blueline_sgi_test[i];
+      ADD("[sgit] %u: cpu %d | %d/%d | %x %d %x %d | %d %x %d | %d\n", i, t[0], t[1], t[2], (unsigned)t[3], t[4], (unsigned)t[5],
+          t[6], t[7], (unsigned)t[8], t[9], t[10]);
+    }
   }
   if (&blueline_touch_state)
     ADD("[touch] stage %d id %08x rpmh %d start %08x events %d errors %d down %x reports %d\n", blueline_touch_state[0],

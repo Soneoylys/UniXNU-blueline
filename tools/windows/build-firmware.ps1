@@ -43,7 +43,8 @@ $env:CLANGPDB_DLL = Join-Path $EdkWin "bin"
 $edk2 = Join-Path $EdkWin "mu_basecore"
 $git = (Get-Command git).Source   # build.ps1 replaces PATH; keep git and the caller's PATH for the revert
 $savedPath = $env:PATH
-$patches = "AsmMacroLib", "Auth-Service", "Boot-Manager", "Timer", "Usb-Bus", "Gic-Spurious" | ForEach-Object { Join-Path $Uefi "Resources\MuPatches\$_.patch" }
+# Gic-Keep-ARE.patch (blueline run 52): ExitBootServices keeps GICD_CTLR.ARE_NS instead of writing 0.
+$patches = "AsmMacroLib", "Auth-Service", "Boot-Manager", "Timer", "Usb-Bus", "Gic-Spurious", "Gic-Keep-ARE" | ForEach-Object { Join-Path $Uefi "Resources\MuPatches\$_.patch" }
 $applied = @()
 $code = 1
 try {

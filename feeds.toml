@@ -6,4 +6,4 @@
 name = "sdm845"
 kind = "soc"
 git = "https://github.com/Soneoylys/UniXNU-sdm845-common"
-commit = "3c109cdfcb55bf0e12e7129e2a5c31d91a96eed2"
+commit = "9938f2064bfd5fa096ca3c5e4fb94d3fb4c361f1"
