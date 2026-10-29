@@ -2222,3 +2222,23 @@ Proposed port (not started): the ios-sweet accessor as a device XNU patch, ArmCp
 `SIGPdisabled` to clear after `initCPU` (logging the core that fails instead of running on silently), and the 0116
 per-core fields in the UFS log's `[cpu]` line. The run 50 dump's `[cpu]` line would already show whether SGI 1
 self-IPIs land.
+
+### Run 51 prepared (2026-10-28): kernel 41, SMP start-up check ported
+
+Owner: "Port it, build 51". `package/BluelineSmpDiag.c` (device e983d98), compiled with XNU's osfmk recipe
+(`cpu_common.o.json`) into libBluelineGpu.a, so no XNU patch and no clean kernel rebuild:
+- Port of ios-sweet `SweetCPU::startAll` (refs/ios-flame 0065): a thread started from `blueline_log_start` waits up to 5 s per
+  core for Init+Started, then up to 5 s for `SIGPdisabled` to clear (`sweet_cpu_signal_is_enabled`). New, not in the reference
+  (which panics): a core that never clears it is recorded and sent up to 20 IPIs from the checking core through
+  `PE_cpu_signal` (the kernel's own path; `blueline-smp-kick=0` turns it off). Result per core in `blueline_smp_check`:
+  ms (self-IPI landed), 10000+n (cleared after n kicks), -2 (never), -3 (core not started). Also printed to msgbuf as
+  `BluelineSmp: check ... | sig ...`.
+- Port of pixel3-ios 0116: the UFS log gains `[smp]` (check, cpu_signal flags, processor state/priority per core) and `[gicr]`
+  (GICR ISPENDR0/ISENABLER0/WAKER per core, frames at 0x17a60000 matched by GICR_TYPER affinity). Reads only.
+Kernel 41 bcf09cbca474223e16bf0b10cafb10c1f4f86f4361e25a4465103c076a10447c (Mac ~/blueline/run51-build.sh; archives built
+against kernel 40). Payload `payload-k41-run51.img` 756a541924f59e1caeb4cf3cecc2c19df674e0b63503c4c04014acbd19200c15 (run 50
+settings: SGI 1, stackshot_single_thread=1, text-mode menu; trust 26ed8386…). FD b9da0c01…2afe. Boot image
+`build/boot/blueline-unixnu-mu-textmode-xnu41-swrender-8cpu.img` 747ac80bd586b18cc2d6e1e50144851f6e2b480f964487e153b28742447b6f54,
+archive `build/share/blueline-run51-kernel41-smpcheck.7z` bdfdc62e90d072e6ecb3dc71378a41b66ff1fafae0604e87b1544b59d8009086
+(download verified). Read in the dump: `[smp] check` per core, `sig` (0x80000000 = still disabled), `[gicr]` pending bit 1
+(SGI 1 pending but never taken) vs not pending (never generated or routed).
