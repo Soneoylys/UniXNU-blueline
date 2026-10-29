@@ -2175,3 +2175,19 @@ the `[ui]` table). Payload `payload-k40-run50.img` 8ec84bc4078d07ac0967602f804e4
 `build/boot/blueline-unixnu-mu-textmode-xnu40-swrender-8cpu.img` 0b38cf679659116380651124656ec82d240965ef0980c9178bb5301e2365d5cb,
 archive `build/share/blueline-run50-kernel40-textmode.7z` 8ae92298315b435f9950ec07d299124906cbaeddc55a3b015df6d30511e65f04
 (download verified). Expect: text-only boot menu; if the stackshot panic is gone, the parallel stackshot path was the cause.
+
+### Run 50 result (2026-10-28): two panics at once; proof that a core runs during the stackshot
+
+Photo only. Two panic screens drawn over each other (two cores panicking together), `exec=PreBoard der=1789 last=AppleKeyStore`.
+- Layer 1 (stackshot core): `thread wait info count mismatch ... @kern_stackshot.c:4971`, frames
+  `handle_debugger_trap` / `kdp_trap` / `DebuggerTrapWithState` as in runs 28/43/46b. So `stackshot_single_thread=1` did not
+  help: the parallel stackshot path was not the cause.
+- Layer 2 (another core): `brk #0xbffc` (XNU_HARD_TRAP_ASSERT_FAILURE) at pc 0xfffffff007ab5894, descriptor
+  `pmap_tt1_deallocate.__desc`: `assert(not_in_kdp)` failed in `pmap_tt1_deallocate` (inlined into `pmap_destroy_internal`)
+  ← `pmap_destroy` ← `vm_map_destroy` ← `posix_spawn` ← `unix_syscall`. `not_in_kdp == 0` means the debugger/stackshot
+  was active while this core was still running ordinary kernel code (tearing down a failed spawn's address space).
+This is direct evidence that a core is not halted during the stackshot even with SGI 1 and no "Debugger synch pending"
+panic, so the run 49 note ("in run 48 every core probably acknowledged") is wrong: a core can stay running without the
+sync check noticing. Candidates: a running core that DebuggerXCallEnter never signals (missing or shared
+`CpuDataEntries`/cpu number, `max_cpu` below 7, a core counted offline) or one that acknowledges and keeps running.
+Text-mode boot menu: no comment yet from the owner.
